@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% set active_page = "profiles" %}
+{% block title %}Profiles{% endblock %}
+
+{% block content %}
+<h3 class="mb-4"><i class="bi bi-person-badge me-2"></i>Social Media Profiles</h3>
+
+{% raw %}
+<div id="profilesContainer" class="row g-3">
+    <div class="col-12 text-center text-muted">Loading...</div>
+</div>
+{% endraw %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function loadProfiles() {
+    const profiles = await fetchAPI('/api/profiles');
+    const container = document.getElementById('profilesContainer');
+
+    // Group by project
+    const grouped = {};
+    for (const p of profiles) {
+        if (!grouped[p.project_id]) grouped[p.project_id] = [];
+        grouped[p.project_id].push(p);
+    }
+
+    let html = '';
+    for (const [projectId, projectProfiles] of Object.entries(grouped)) {
+        const color = projectId === 'infiniteo' ? 'primary' : 'success';
+        html += `<div class="col-12"><h5 class="text-${color}">${projectId.charAt(0).toUpperCase() + projectId.slice(1)}</h5></div>`;
+
+        for (const p of projectProfiles) {
+            const tokenStatus = !p.has_token ? 'Not Connected'
+                : p.token_expires_at && new Date(p.token_expires_at) < new Date() ? 'Expired'
+                : 'Connected';
+            const tokenColor = tokenStatus === 'Connected' ? 'success' : tokenStatus === 'Expired' ? 'warning' : 'secondary';
+            const platformIcon = p.platform === 'linkedin' ? 'linkedin' : 'twitter-x';
+
+            html += `
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between">
+                        <span><i class="bi bi-${platformIcon} me-1"></i> ${p.platform.toUpperCase()} - ${p.account_type.toUpperCase()}</span>
+                        <span class="badge bg-${tokenColor}">${tokenStatus}</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-1"><strong>Display Name:</strong> ${p.display_name || 'Not set'}</p>
+                        <p class="mb-1"><strong>User/Org ID:</strong> ${p.platform_user_id || 'Not set'}</p>
+                        <p class="mb-2"><strong>Active:</strong> ${p.is_active ? 'Yes' : 'No'}</p>
+
+                        ${p.platform === 'linkedin' ? `
+                            <a href="/auth/linkedin/start?project_id=${p.project_id}&account_type=${p.account_type}"
+                               class="btn btn-sm btn-outline-primary me-2">
+                                <i class="bi bi-linkedin me-1"></i>${p.has_token ? 'Reconnect' : 'Connect'} LinkedIn
+                            </a>
+                        ` : ''}
+
+                        <button class="btn btn-sm btn-outline-secondary" onclick="editProfile(${p.id})">
+                            <i class="bi bi-pencil me-1"></i>Edit
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+        }
+    }
+
+    container.innerHTML = html || '<div class="col-12 text-muted">No profiles found</div>';
+}
+
+async function editProfile(profileId) {
+    const userId = prompt('Enter Platform User ID (LinkedIn person/org ID):');
+    if (userId === null) return;
+
+    try {
+        await fetchAPI(`/api/profiles/${profileId}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({platform_user_id: userId, is_active: true}),
+        });
+        showToast('Profile updated!', 'success');
+        loadProfiles();
+    } catch (e) {
+        showToast(`Error: ${e.message}`, 'danger');
+    }
+}
+
+// Check URL params for success/error messages
+const params = new URLSearchParams(window.location.search);
+if (params.get('success')) showToast('LinkedIn connected successfully!', 'success');
+if (params.get('error')) showToast(`Error: ${params.get('error')}`, 'danger');
+
+loadProfiles();
+</script>
+{% endblock %}

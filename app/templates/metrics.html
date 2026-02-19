@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% set active_page = "metrics" %}
+{% block title %}Metrics{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3><i class="bi bi-graph-up me-2"></i>Quality Metrics</h3>
+    <div>
+        <select class="form-select form-select-sm d-inline-block w-auto" id="filterProject">
+            <option value="">All Projects</option>
+            <option value="infiniteo">Infiniteo</option>
+            <option value="yourops">YourOps</option>
+        </select>
+        <select class="form-select form-select-sm d-inline-block w-auto ms-2" id="filterDays">
+            <option value="7">Last 7 days</option>
+            <option value="30" selected>Last 30 days</option>
+            <option value="90">Last 90 days</option>
+        </select>
+    </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="fs-2 fw-bold text-primary" id="totalRuns">-</div>
+                <small class="text-muted">Total Runs</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="fs-2 fw-bold text-success" id="successRate">-</div>
+                <small class="text-muted">Success Rate</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="fs-2 fw-bold text-warning" id="fallbackRate">-</div>
+                <small class="text-muted">Fallback Used</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="fs-2 fw-bold text-info" id="avgArticles">-</div>
+                <small class="text-muted">Avg Articles/Run</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts -->
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><h6 class="mb-0">Run Status Distribution</h6></div>
+            <div class="card-body">
+                <canvas id="statusChart" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><h6 class="mb-0">Top Article Sources</h6></div>
+            <div class="card-body">
+                <canvas id="sourcesChart" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let statusChart, sourcesChart;
+
+async function loadMetrics() {
+    const projectId = document.getElementById('filterProject').value;
+    const days = document.getElementById('filterDays').value;
+    const params = new URLSearchParams({days});
+    if (projectId) params.set('project_id', projectId);
+
+    const data = await fetchAPI(`/api/metrics?${params}`);
+
+    document.getElementById('totalRuns').textContent = data.total_runs;
+    document.getElementById('successRate').textContent = data.success_rate + '%';
+    document.getElementById('fallbackRate').textContent = data.fallback_count;
+    document.getElementById('avgArticles').textContent = data.avg_articles_per_run;
+
+    // Status pie chart
+    if (statusChart) statusChart.destroy();
+    statusChart = new Chart(document.getElementById('statusChart'), {
+        type: 'doughnut',
+        data: {
+            labels: ['Success', 'Failed', 'Partial'],
+            datasets: [{
+                data: [data.successful_runs, data.failed_runs, data.partial_failures],
+                backgroundColor: ['#198754', '#dc3545', '#ffc107'],
+            }]
+        },
+        options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    });
+
+    // Sources bar chart
+    if (sourcesChart) sourcesChart.destroy();
+    const sources = data.top_sources || [];
+    sourcesChart = new Chart(document.getElementById('sourcesChart'), {
+        type: 'bar',
+        data: {
+            labels: sources.map(s => {
+                try { return new URL(s.source).hostname.replace('www.', ''); } catch { return s.source; }
+            }),
+            datasets: [{
+                label: 'Articles Selected',
+                data: sources.map(s => s.count),
+                backgroundColor: '#0d6efd',
+            }]
+        },
+        options: {
+            responsive: true,
+            indexAxis: 'y',
+            plugins: { legend: { display: false } }
+        }
+    });
+}
+
+document.getElementById('filterProject').addEventListener('change', loadMetrics);
+document.getElementById('filterDays').addEventListener('change', loadMetrics);
+loadMetrics();
+</script>
+{% endblock %}

@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% set active_page = "dashboard" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3><i class="bi bi-speedometer2 me-2"></i>Operations Dashboard</h3>
+    <span class="badge bg-secondary" id="lastRefresh">Loading...</span>
+</div>
+
+<!-- Project Cards -->
+<div class="row g-4 mb-4" id="projectCards">
+    <div class="col-md-6">
+        <div class="card border-primary h-100">
+            <div class="card-header bg-primary bg-opacity-10 d-flex justify-content-between">
+                <h5 class="mb-0">Infiniteo</h5>
+                <span class="badge bg-secondary" id="status-infiniteo">Loading</span>
+            </div>
+            <div class="card-body">
+                <div class="row text-center mb-3">
+                    <div class="col">
+                        <div class="fs-4 fw-bold" id="articles-infiniteo">-</div>
+                        <small class="text-muted">Total Articles</small>
+                    </div>
+                    <div class="col">
+                        <div class="fs-4 fw-bold" id="posts-infiniteo">-</div>
+                        <small class="text-muted">Posts Today</small>
+                    </div>
+                </div>
+                <p class="mb-1"><strong>Last Run:</strong> <span id="lastrun-infiniteo">Never</span></p>
+                <p class="mb-3"><strong>Next Run:</strong> <span id="nextrun-infiniteo">Not scheduled</span></p>
+                <button class="btn btn-primary w-100" onclick="triggerPipeline('infiniteo')">
+                    <i class="bi bi-play-fill me-1"></i> Run Now
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card border-success h-100">
+            <div class="card-header bg-success bg-opacity-10 d-flex justify-content-between">
+                <h5 class="mb-0">YourOps</h5>
+                <span class="badge bg-secondary" id="status-yourops">Loading</span>
+            </div>
+            <div class="card-body">
+                <div class="row text-center mb-3">
+                    <div class="col">
+                        <div class="fs-4 fw-bold" id="articles-yourops">-</div>
+                        <small class="text-muted">Total Articles</small>
+                    </div>
+                    <div class="col">
+                        <div class="fs-4 fw-bold" id="posts-yourops">-</div>
+                        <small class="text-muted">Posts Today</small>
+                    </div>
+                </div>
+                <p class="mb-1"><strong>Last Run:</strong> <span id="lastrun-yourops">Never</span></p>
+                <p class="mb-3"><strong>Next Run:</strong> <span id="nextrun-yourops">Not scheduled</span></p>
+                <button class="btn btn-success w-100" onclick="triggerPipeline('yourops')">
+                    <i class="bi bi-play-fill me-1"></i> Run Now
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Runs -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Recent Pipeline Runs</h5>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Project</th>
+                    <th>Trigger</th>
+                    <th>Status</th>
+                    <th>Time</th>
+                    <th>Fallback</th>
+                </tr>
+            </thead>
+            <tbody id="recentRuns">
+                <tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function loadDashboard() {
+    try {
+        const data = await fetchAPI('/api/overview');
+
+        for (const project of data.projects) {
+            const id = project.id;
+            document.getElementById(`articles-${id}`).textContent = project.total_articles;
+            document.getElementById(`posts-${id}`).textContent = project.today_posts;
+
+            if (project.last_run) {
+                const statusBadge = document.getElementById(`status-${id}`);
+                statusBadge.textContent = project.last_run.status;
+                statusBadge.className = `badge bg-${statusColor(project.last_run.status)}`;
+                document.getElementById(`lastrun-${id}`).textContent = formatTime(project.last_run.time);
+            }
+
+            document.getElementById(`nextrun-${id}`).textContent =
+                project.next_run ? formatTime(project.next_run) : 'Not scheduled';
+        }
+
+        // Recent runs table
+        const tbody = document.getElementById('recentRuns');
+        if (data.recent_runs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No runs yet. Click "Run Now" to start!</td></tr>';
+        } else {
+            tbody.innerHTML = data.recent_runs.map(run => `
+                <tr style="cursor:pointer" onclick="window.location='/executions'">
+                    <td><strong>${run.project_id}</strong></td>
+                    <td>${run.trigger_type}</td>
+                    <td><span class="badge bg-${statusColor(run.status)}">${run.status}</span></td>
+                    <td>${formatTime(run.started_at)}</td>
+                    <td>${run.used_fallback ? '<i class="bi bi-exclamation-triangle text-warning"></i> Yes' : '<i class="bi bi-check-circle text-success"></i> No'}</td>
+                </tr>
+            `).join('');
+        }
+
+        document.getElementById('lastRefresh').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+    } catch (e) {
+        console.error('Dashboard load error:', e);
+    }
+}
+
+async function triggerPipeline(projectId) {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Running...';
+
+    try {
+        await fetchAPI('/api/runs/trigger', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({project_id: projectId})
+        });
+        showToast(`Pipeline triggered for ${projectId}!`, 'success');
+        // Poll for completion
+        setTimeout(loadDashboard, 5000);
+        setTimeout(loadDashboard, 15000);
+        setTimeout(loadDashboard, 30000);
+    } catch (e) {
+        showToast(`Error: ${e.message}`, 'danger');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-play-fill me-1"></i> Run Now';
+    }
+}
+
+loadDashboard();
+setInterval(loadDashboard, 30000);
+</script>
+{% endblock %}

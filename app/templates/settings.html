@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% set active_page = "settings" %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<h3 class="mb-4"><i class="bi bi-gear me-2"></i>Project Settings</h3>
+
+<ul class="nav nav-tabs mb-3" id="projectTabs">
+    <li class="nav-item">
+        <a class="nav-link active" data-bs-toggle="tab" href="#tab-infiniteo">Infiniteo</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" data-bs-toggle="tab" href="#tab-yourops">YourOps</a>
+    </li>
+</ul>
+
+<div class="tab-content" id="projectTabContent"></div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function loadSettings() {
+    const projects = await fetchAPI('/api/projects');
+    const tabContent = document.getElementById('projectTabContent');
+
+    tabContent.innerHTML = projects.map((p, i) => `
+        <div class="tab-pane fade ${i === 0 ? 'show active' : ''}" id="tab-${p.id}">
+            <form onsubmit="saveProject(event, '${p.id}')">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header"><h6 class="mb-0">General</h6></div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Display Name</label>
+                                    <input type="text" class="form-control" id="${p.id}-name" value="${p.display_name}">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Schedule (Cron)</label>
+                                    <input type="text" class="form-control font-monospace" id="${p.id}-cron" value="${p.schedule_cron}">
+                                    <small class="text-muted">e.g. "0 14 * * *" = daily at 2 PM UTC</small>
+                                </div>
+                                <div class="form-check mb-3">
+                                    <input type="checkbox" class="form-check-input" id="${p.id}-twitter" ${p.twitter_enabled ? 'checked' : ''}>
+                                    <label class="form-check-label" for="${p.id}-twitter">Enable Twitter posting</label>
+                                </div>
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="${p.id}-active" ${p.is_active ? 'checked' : ''}>
+                                    <label class="form-check-label" for="${p.id}-active">Project active</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header"><h6 class="mb-0">RSS Feeds</h6></div>
+                            <div class="card-body">
+                                <textarea class="form-control font-monospace" id="${p.id}-feeds" rows="8" style="font-size:0.85rem">${(p.rss_feeds || []).join('\n')}</textarea>
+                                <small class="text-muted">One feed URL per line</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header"><h6 class="mb-0">Hashtags</h6></div>
+                            <div class="card-body">
+                                <input type="text" class="form-control" id="${p.id}-hashtags" value="${(p.hashtags || []).join(', ')}">
+                                <small class="text-muted">Comma-separated hashtags</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-lg me-1"></i>Save Changes
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    `).join('');
+}
+
+async function saveProject(e, projectId) {
+    e.preventDefault();
+
+    const feedsText = document.getElementById(`${projectId}-feeds`).value;
+    const feeds = feedsText.split('\n').map(f => f.trim()).filter(f => f);
+    const hashtagsText = document.getElementById(`${projectId}-hashtags`).value;
+    const hashtags = hashtagsText.split(',').map(h => h.trim()).filter(h => h);
+
+    const update = {
+        display_name: document.getElementById(`${projectId}-name`).value,
+        schedule_cron: document.getElementById(`${projectId}-cron`).value,
+        twitter_enabled: document.getElementById(`${projectId}-twitter`).checked,
+        is_active: document.getElementById(`${projectId}-active`).checked,
+        rss_feeds: feeds,
+        hashtags: hashtags,
+    };
+
+    try {
+        await fetchAPI(`/api/projects/${projectId}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(update),
+        });
+        showToast('Settings saved!', 'success');
+    } catch (e) {
+        showToast(`Error: ${e.message}`, 'danger');
+    }
+}
+
+loadSettings();
+</script>
+{% endblock %}
