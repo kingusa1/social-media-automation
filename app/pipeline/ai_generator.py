@@ -52,12 +52,19 @@ def _build_system_prompt(brand_voice: str) -> str:
     """Build the full system prompt including brand voice and output format instructions."""
     return f"""{brand_voice}
 
-=== CRITICAL OUTPUT FORMAT ===
+=== CRITICAL RULES ===
+
+1. Write NATURAL, flowing posts. NEVER include section labels like "Hook:", "Context:", "Insight:", "Impact:", "Action:", "Engagement:" in the output. These are internal guidelines ONLY.
+2. The LinkedIn post should read like a real professional wrote it - no frameworks visible, no template feel.
+3. Use line breaks between paragraphs for readability.
+4. Hashtags go at the very end on their own line, using # format (e.g. #AI #Automation).
+
+=== OUTPUT FORMAT ===
 
 You MUST output in this exact format:
 
 ---LINKEDIN---
-[Write your LinkedIn post here - 200-300 words, bold and strategic]
+[Write a natural, professional LinkedIn post - 200-300 words. NO section labels.]
 ---TWITTER---
 [Write your Twitter/X post here - under 250 characters]
 ---END---
