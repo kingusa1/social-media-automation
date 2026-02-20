@@ -1,81 +1,305 @@
 {% extends "base.html" %}
 {% set active_page = "profiles" %}
-{% block title %}Profiles{% endblock %}
+{% block title %}Connections{% endblock %}
+
+{% block extra_head %}
+<style>
+    .platform-card {
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 12px;
+        overflow: hidden;
+        transition: border-color 0.2s;
+    }
+    .platform-card:hover { border-color: rgba(255,255,255,0.2); }
+    .platform-header {
+        padding: 16px 20px;
+        display: flex; align-items: center; justify-content: space-between;
+    }
+    .platform-header.linkedin { background: linear-gradient(135deg, #0a66c2 0%, #004182 100%); }
+    .platform-header.twitter { background: linear-gradient(135deg, #1d9bf0 0%, #0c7abf 100%); }
+    .platform-body { padding: 20px; }
+    .status-dot {
+        width: 10px; height: 10px; border-radius: 50%;
+        display: inline-block; margin-right: 6px;
+    }
+    .status-dot.connected { background: #198754; box-shadow: 0 0 6px #198754; }
+    .status-dot.disconnected { background: #6c757d; }
+    .status-dot.expiring { background: #ffc107; box-shadow: 0 0 6px #ffc107; }
+    .account-row {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 8px 12px; border-radius: 8px;
+        background: rgba(255,255,255,0.03); margin-bottom: 8px;
+    }
+    .project-section { margin-bottom: 32px; }
+    .project-title {
+        font-size: 1.25rem; font-weight: 600; margin-bottom: 16px;
+        display: flex; align-items: center; gap: 10px;
+    }
+    .project-badge {
+        font-size: 0.7rem; padding: 3px 10px; border-radius: 20px;
+        font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .connect-btn {
+        padding: 10px 24px; border-radius: 8px; font-weight: 600;
+        display: inline-flex; align-items: center; gap: 8px;
+        transition: all 0.2s;
+    }
+    .connect-btn:hover { transform: translateY(-1px); }
+    .disconnect-btn { font-size: 0.8rem; padding: 4px 12px; border-radius: 6px; }
+    .token-info { font-size: 0.78rem; color: #9ca3af; margin-top: 4px; }
+    .help-text { font-size: 0.82rem; color: #9ca3af; line-height: 1.5; }
+    .twitter-form .form-label { font-size: 0.82rem; font-weight: 500; margin-bottom: 4px; }
+    .twitter-form .form-control { font-size: 0.85rem; font-family: monospace; }
+</style>
+{% endblock %}
 
 {% block content %}
-<h3 class="mb-3"><i class="bi bi-person-badge me-2"></i>Profiles</h3>
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+    <div>
+        <h3 class="mb-1"><i class="bi bi-plug me-2"></i>Connections</h3>
+        <p class="text-muted mb-0 small">Connect your social media accounts to each project</p>
+    </div>
+</div>
 
 {% raw %}
-<div id="profilesContainer" class="row g-3">
-    <div class="col-12 text-center text-muted">Loading...</div>
+<div id="profilesContainer">
+    <div class="text-center text-muted py-5">
+        <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+        Loading connections...
+    </div>
 </div>
 {% endraw %}
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-async function loadProfiles() {
-    const profiles = await fetchAPI('/api/profiles');
-    const container = document.getElementById('profilesContainer');
+let allProjects = [];
+let allProfiles = [];
 
-    // Group by project
-    const grouped = {};
-    for (const p of profiles) {
-        if (!grouped[p.project_id]) grouped[p.project_id] = [];
-        grouped[p.project_id].push(p);
+async function loadData() {
+    const [projects, profiles] = await Promise.all([
+        fetchAPI('/api/projects'),
+        fetchAPI('/api/profiles'),
+    ]);
+    allProjects = projects;
+    allProfiles = profiles;
+    render();
+}
+
+function getStatus(profile) {
+    if (!profile || !profile.has_token) return { text: 'Not Connected', cls: 'disconnected', color: 'secondary' };
+    if (profile.token_expires_at) {
+        let ts = profile.token_expires_at;
+        if (!ts.endsWith('Z') && !ts.includes('+') && !ts.includes('-', 10)) ts += 'Z';
+        const exp = new Date(ts);
+        const days = Math.floor((exp - new Date()) / 86400000);
+        if (days < 0) return { text: 'Expired', cls: 'disconnected', color: 'danger' };
+        if (days < 7) return { text: `Expires in ${days}d`, cls: 'expiring', color: 'warning' };
+        return { text: `Connected (${days}d left)`, cls: 'connected', color: 'success' };
     }
+    return { text: 'Connected', cls: 'connected', color: 'success' };
+}
 
+function render() {
+    const container = document.getElementById('profilesContainer');
     let html = '';
-    for (const [projectId, projectProfiles] of Object.entries(grouped)) {
-        const color = projectId === 'infiniteo' ? 'primary' : 'success';
-        const linkedinProfiles = projectProfiles.filter(p => p.platform === 'linkedin');
-        const anyConnected = linkedinProfiles.some(p => p.has_token);
 
-        html += `<div class="col-12"><h5 class="text-${color}">${projectId.charAt(0).toUpperCase() + projectId.slice(1)}</h5></div>`;
+    for (const project of allProjects) {
+        const pid = project.id;
+        const pName = project.display_name;
+        const profiles = allProfiles.filter(p => p.project_id === pid);
+        const linkedinProfiles = profiles.filter(p => p.platform === 'linkedin');
+        const twitterProfile = profiles.find(p => p.platform === 'twitter');
+        const linkedinConnected = linkedinProfiles.some(p => p.has_token);
+        const twitterConnected = twitterProfile && twitterProfile.has_token;
 
-        html += `
-        <div class="col-12 col-md-8">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center py-2">
-                    <span><i class="bi bi-linkedin me-1"></i> LINKEDIN</span>
-                    <span class="badge bg-${anyConnected ? 'success' : 'secondary'}">${anyConnected ? 'Connected' : 'Not Connected'}</span>
-                </div>
-                <div class="card-body">`;
+        html += `<div class="project-section">`;
+        html += `<div class="project-title">
+            <span>${pName}</span>
+            <span class="project-badge bg-${linkedinConnected || twitterConnected ? 'success' : 'secondary'}">
+                ${linkedinConnected || twitterConnected ? 'Active' : 'Setup needed'}
+            </span>
+        </div>`;
 
-        for (const p of linkedinProfiles) {
-            const status = !p.has_token ? 'Not Connected'
-                : p.token_expires_at && new Date(p.token_expires_at) < new Date() ? 'Expired'
-                : 'Connected';
-            const statusColor = status === 'Connected' ? 'success' : status === 'Expired' ? 'warning' : 'secondary';
-            const icon = p.account_type === 'personal' ? 'person' : 'building';
+        html += `<div class="row g-3">`;
 
-            html += `
-                    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-1">
-                        <span class="small"><i class="bi bi-${icon} me-1"></i> ${p.account_type.charAt(0).toUpperCase() + p.account_type.slice(1)}: ${p.platform_user_id || 'Auto-detected'}</span>
-                        <span class="badge bg-${statusColor}">${status}${p.is_active ? '' : ' (off)'}</span>
-                    </div>`;
+        // ====== LINKEDIN CARD ======
+        html += `<div class="col-12 col-lg-6"><div class="platform-card">`;
+        html += `<div class="platform-header linkedin">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-linkedin fs-5"></i><span class="fw-bold">LinkedIn</span>
+            </div>
+            <span class="badge bg-${linkedinConnected ? 'light text-dark' : 'dark bg-opacity-50'}">
+                <span class="status-dot ${linkedinConnected ? 'connected' : 'disconnected'}"></span>
+                ${linkedinConnected ? 'Connected' : 'Not Connected'}
+            </span>
+        </div>`;
+        html += `<div class="platform-body">`;
+
+        if (linkedinConnected) {
+            for (const p of linkedinProfiles) {
+                const st = getStatus(p);
+                const icon = p.account_type === 'personal' ? 'person-fill' : 'building-fill';
+                const label = p.account_type === 'personal' ? 'Personal' : 'Organization';
+                html += `<div class="account-row">
+                    <div>
+                        <i class="bi bi-${icon} me-1"></i>
+                        <span class="small fw-medium">${label}</span>
+                        ${p.platform_user_id ? `<span class="text-muted small ms-1">(${p.platform_user_id})</span>` : ''}
+                    </div>
+                    <span class="badge bg-${st.color}">${st.text}</span>
+                </div>`;
+            }
+            html += `<div class="token-info mt-2">
+                <i class="bi bi-shield-check me-1"></i>
+                Auto-detects personal + organization. Token auto-refreshes before expiry.
+            </div>`;
+            html += `<div class="d-flex gap-2 mt-3 flex-wrap">
+                <a href="/auth/linkedin/start?project_id=${pid}" class="btn btn-outline-primary connect-btn">
+                    <i class="bi bi-arrow-clockwise"></i> Reconnect
+                </a>
+                <button class="btn btn-outline-danger disconnect-btn" onclick="disconnectPlatform('${pid}', 'linkedin')">
+                    <i class="bi bi-x-circle me-1"></i>Disconnect
+                </button>
+            </div>`;
+        } else {
+            html += `<p class="help-text mb-3">
+                <i class="bi bi-info-circle me-1"></i>
+                Click below to connect your LinkedIn. Auto-detects your personal profile
+                and any organization pages you admin. <strong>One click, done.</strong>
+            </p>`;
+            html += `<a href="/auth/linkedin/start?project_id=${pid}" class="btn btn-primary connect-btn w-100">
+                <i class="bi bi-linkedin"></i> Connect LinkedIn
+            </a>`;
+        }
+
+        html += `</div></div></div>`; // platform-body, platform-card, col
+
+        // ====== TWITTER CARD ======
+        html += `<div class="col-12 col-lg-6"><div class="platform-card">`;
+        html += `<div class="platform-header twitter">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-twitter-x fs-5"></i><span class="fw-bold">Twitter / X</span>
+            </div>
+            <span class="badge bg-${twitterConnected ? 'light text-dark' : 'dark bg-opacity-50'}">
+                <span class="status-dot ${twitterConnected ? 'connected' : 'disconnected'}"></span>
+                ${twitterConnected ? 'Connected' : 'Not Connected'}
+            </span>
+        </div>`;
+        html += `<div class="platform-body">`;
+
+        if (twitterConnected) {
+            html += `<div class="account-row">
+                <div><i class="bi bi-person-fill me-1"></i><span class="small fw-medium">API Connected</span></div>
+                <span class="badge bg-success">Active</span>
+            </div>`;
+            html += `<div class="token-info mt-2">
+                <i class="bi bi-key-fill me-1"></i> Using stored API credentials. No expiration.
+            </div>`;
+            html += `<div class="d-flex gap-2 mt-3 flex-wrap">
+                <button class="btn btn-outline-info connect-btn" onclick="toggleTwitterForm('${pid}')">
+                    <i class="bi bi-pencil"></i> Update Keys
+                </button>
+                <button class="btn btn-outline-danger disconnect-btn" onclick="disconnectPlatform('${pid}', 'twitter')">
+                    <i class="bi bi-x-circle me-1"></i>Disconnect
+                </button>
+            </div>`;
+            html += `<div id="twitter-form-${pid}" class="twitter-form mt-3" style="display:none;">`;
+        } else {
+            html += `<p class="help-text mb-3">
+                <i class="bi bi-info-circle me-1"></i>
+                Twitter requires API keys from the
+                <a href="https://developer.x.com/en/portal/dashboard" target="_blank" class="text-info">X Developer Portal</a>.
+                Create a free app, then paste your 4 keys below.
+            </p>`;
+            html += `<div id="twitter-form-${pid}" class="twitter-form">`;
         }
 
         html += `
-                    <hr>
-                    <a href="/auth/linkedin/start?project_id=${projectId}"
-                       class="btn btn-${anyConnected ? 'outline-' : ''}primary w-100 w-md-auto">
-                        <i class="bi bi-linkedin me-1"></i>${anyConnected ? 'Reconnect' : 'Connect'} LinkedIn
-                    </a>
-                    <small class="text-muted d-block mt-2">Auto-detects personal & organization</small>
-                </div>
+            <div class="mb-2">
+                <label class="form-label">API Key</label>
+                <input type="text" class="form-control form-control-sm" id="tw-key-${pid}" placeholder="e.g. xAi1bC2dE3fG4h...">
             </div>
+            <div class="mb-2">
+                <label class="form-label">API Secret</label>
+                <input type="password" class="form-control form-control-sm" id="tw-secret-${pid}" placeholder="e.g. kL5mN6oP7qR8s...">
+            </div>
+            <div class="mb-2">
+                <label class="form-label">Access Token</label>
+                <input type="text" class="form-control form-control-sm" id="tw-access-${pid}" placeholder="e.g. 12345-xY9zW8v...">
+            </div>
+            <div class="mb-2">
+                <label class="form-label">Access Secret</label>
+                <input type="password" class="form-control form-control-sm" id="tw-access-secret-${pid}" placeholder="e.g. aB3cD4eF5gH6...">
+            </div>
+            <button class="btn btn-info connect-btn w-100 mt-2" onclick="saveTwitter('${pid}')">
+                <i class="bi bi-check-circle"></i> ${twitterConnected ? 'Update' : 'Connect'} Twitter
+            </button>
         </div>`;
+
+        html += `</div></div></div>`; // platform-body, platform-card, col
+
+        html += `</div></div>`; // row, project-section
     }
 
-    container.innerHTML = html || '<div class="col-12 text-muted">No profiles found</div>';
+    container.innerHTML = html || '<div class="text-muted text-center py-5">No projects found.</div>';
+}
+
+function toggleTwitterForm(pid) {
+    const form = document.getElementById('twitter-form-' + pid);
+    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+async function saveTwitter(pid) {
+    const apiKey = document.getElementById('tw-key-' + pid).value.trim();
+    const apiSecret = document.getElementById('tw-secret-' + pid).value.trim();
+    const accessToken = document.getElementById('tw-access-' + pid).value.trim();
+    const accessSecret = document.getElementById('tw-access-secret-' + pid).value.trim();
+
+    if (!apiKey || !apiSecret || !accessToken || !accessSecret) {
+        showToast('All 4 Twitter credentials are required', 'warning');
+        return;
+    }
+
+    try {
+        await fetchAPI('/api/profiles/twitter/' + pid, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                api_key: apiKey, api_secret: apiSecret,
+                access_token: accessToken, access_secret: accessSecret,
+            }),
+        });
+        showToast('Twitter connected successfully!', 'success');
+        await loadData();
+    } catch (e) {
+        showToast('Failed: ' + e.message, 'danger');
+    }
+}
+
+async function disconnectPlatform(pid, platform) {
+    if (!confirm('Disconnect ' + platform + ' from ' + pid + '? You can reconnect anytime.')) return;
+    try {
+        await fetchAPI('/api/profiles/disconnect/' + pid + '/' + platform, { method: 'POST' });
+        showToast(platform + ' disconnected', 'success');
+        await loadData();
+    } catch (e) {
+        showToast('Failed: ' + e.message, 'danger');
+    }
 }
 
 // Check URL params for success/error messages
 const params = new URLSearchParams(window.location.search);
-if (params.get('success')) showToast('LinkedIn connected! Personal & organization profiles auto-detected.', 'success');
-if (params.get('error')) showToast('Error: ' + decodeURIComponent(params.get('error')), 'danger');
+if (params.get('success')) {
+    const proj = params.get('project') || '';
+    showToast('LinkedIn connected for ' + (proj || 'project') + '! Personal & org auto-detected.', 'success');
+    history.replaceState({}, '', '/profiles');
+}
+if (params.get('error')) {
+    showToast('Error: ' + decodeURIComponent(params.get('error')), 'danger');
+    history.replaceState({}, '', '/profiles');
+}
 
-loadProfiles();
+loadData();
 </script>
 {% endblock %}

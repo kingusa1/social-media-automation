@@ -80,17 +80,22 @@ def seed_projects():
             )
             db.add(project)
 
-            # Create default profile placeholders
-            for platform in ["linkedin"]:
-                for account_type in ["personal", "organization"]:
-                    profile = Profile(
-                        project_id=project_id,
-                        platform=platform,
-                        account_type=account_type,
-                        display_name=f"{config['display_name']} - {account_type.title()} LinkedIn",
-                        is_active=False,  # inactive until credentials added
-                    )
-                    db.add(profile)
+            # Create default profile placeholders (LinkedIn + Twitter)
+            for account_type in ["personal", "organization"]:
+                db.add(Profile(
+                    project_id=project_id,
+                    platform="linkedin",
+                    account_type=account_type,
+                    display_name=f"{config['display_name']} - {account_type.title()} LinkedIn",
+                    is_active=False,
+                ))
+            db.add(Profile(
+                project_id=project_id,
+                platform="twitter",
+                account_type="personal",
+                display_name=f"{config['display_name']} - Twitter",
+                is_active=False,
+            ))
 
         db.commit()
         logger.info("Projects seeded successfully")

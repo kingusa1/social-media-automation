@@ -45,3 +45,4 @@ nul
 *.log
 
 .vercel
+.env*.local

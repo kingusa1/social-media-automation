@@ -25,15 +25,20 @@ function statusColor(status) {
 function formatTime(isoStr) {
     if (!isoStr) return '-';
     try {
-        const d = new Date(isoStr);
+        // Server sends UTC timestamps - ensure they're parsed as UTC
+        let s = isoStr;
+        if (!s.endsWith('Z') && !s.includes('+') && !s.includes('-', 10)) s += 'Z';
+        const d = new Date(s);
         const now = new Date();
         const diffMs = now - d;
         const diffMin = Math.floor(diffMs / 60000);
         const diffHr = Math.floor(diffMs / 3600000);
+        const diffDay = Math.floor(diffMs / 86400000);
 
         if (diffMin < 1) return 'Just now';
         if (diffMin < 60) return `${diffMin}m ago`;
         if (diffHr < 24) return `${diffHr}h ago`;
+        if (diffDay < 7) return `${diffDay}d ago`;
         return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
     } catch {
         return isoStr;

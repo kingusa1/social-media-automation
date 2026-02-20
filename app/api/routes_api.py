@@ -435,6 +435,85 @@ def update_profile(profile_id: int, update: ProfileUpdate, db: Session = Depends
     return {"message": "Profile updated", "profile_id": profile_id}
 
 
+@router.post("/profiles/disconnect/{project_id}/{platform}")
+def disconnect_platform(project_id: str, platform: str, db: Session = Depends(get_db)):
+    """Disconnect a platform from a project - clears all tokens."""
+    profiles = (
+        db.query(Profile)
+        .filter(Profile.project_id == project_id, Profile.platform == platform)
+        .all()
+    )
+    if not profiles:
+        raise HTTPException(status_code=404, detail="No profiles found")
+
+    for p in profiles:
+        p.access_token = ""
+        p.refresh_token = ""
+        p.token_expires_at = None
+        p.platform_user_id = ""
+        p.is_active = False
+        if platform == "twitter":
+            p.extra_config = "{}"
+
+    # If disconnecting twitter, also disable twitter on the project
+    if platform == "twitter":
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if project:
+            project.twitter_enabled = False
+
+    db.commit()
+    return {"message": f"{platform} disconnected from {project_id}"}
+
+
+@router.put("/profiles/twitter/{project_id}")
+def save_twitter_credentials(project_id: str, body: dict, db: Session = Depends(get_db)):
+    """Save Twitter API credentials for a project."""
+    api_key = body.get("api_key", "").strip()
+    api_secret = body.get("api_secret", "").strip()
+    access_token = body.get("access_token", "").strip()
+    access_secret = body.get("access_secret", "").strip()
+
+    if not all([api_key, api_secret, access_token, access_secret]):
+        raise HTTPException(status_code=400, detail="All 4 Twitter credentials are required")
+
+    # Get or create the twitter profile for this project
+    profile = (
+        db.query(Profile)
+        .filter(
+            Profile.project_id == project_id,
+            Profile.platform == "twitter",
+            Profile.account_type == "personal",
+        )
+        .first()
+    )
+    if not profile:
+        profile = Profile(
+            project_id=project_id,
+            platform="twitter",
+            account_type="personal",
+            display_name=f"{project_id} - Twitter",
+        )
+        db.add(profile)
+
+    # Store credentials in extra_config JSON
+    profile.extra_config = json.dumps({
+        "api_key": api_key,
+        "api_secret": api_secret,
+        "access_token": access_token,
+        "access_secret": access_secret,
+    })
+    profile.access_token = access_token  # Mark as "has token"
+    profile.is_active = True
+
+    # Enable twitter on the project
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project:
+        project.twitter_enabled = True
+
+    db.commit()
+    return {"message": f"Twitter connected for {project_id}"}
+
+
 # ========== Metrics ==========
 
 @router.get("/metrics")
