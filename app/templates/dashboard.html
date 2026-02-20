@@ -6,11 +6,14 @@
 {% raw %}
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <div>
-        <h3 class="mb-0"><i class="bi bi-grid-1x2-fill me-2"></i>Dashboard</h3>
+        <h3 class="mb-1" style="font-weight:700;letter-spacing:-0.3px"><i class="bi bi-grid-1x2-fill me-2" style="color:var(--accent-blue)"></i>Dashboard</h3>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin:0">Overview of your automation pipeline</p>
     </div>
-    <span class="badge bg-dark border px-3 py-2" id="lastRefresh" style="font-size:0.8rem">
-        <i class="bi bi-clock me-1"></i>Loading...
-    </span>
+    <div class="d-flex align-items-center gap-2">
+        <span class="badge bg-dark border px-3 py-2" id="lastRefresh" style="font-size:0.78rem;border-radius:var(--radius-sm)">
+            <i class="bi bi-clock me-1"></i>Loading...
+        </span>
+    </div>
 </div>
 
 <!-- Project Cards -->
@@ -23,9 +26,11 @@
 
 <!-- Recent Activity -->
 <div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center py-2">
-        <h6 class="mb-0"><i class="bi bi-clock-history me-2"></i>Recent Activity</h6>
-        <a href="/executions" class="btn btn-sm btn-outline-secondary">View All</a>
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="bi bi-clock-history me-2" style="color:var(--accent-purple)"></i>Recent Activity</h6>
+        <a href="/executions" class="btn btn-sm btn-outline-secondary" style="font-size:0.8rem">
+            View All <i class="bi bi-arrow-right ms-1"></i>
+        </a>
     </div>
     <div class="table-responsive-wrapper">
         <table class="table table-hover mb-0">
@@ -38,7 +43,7 @@
                 </tr>
             </thead>
             <tbody id="recentRuns">
-                <tr><td colspan="4" class="text-center text-muted py-3">Loading...</td></tr>
+                <tr><td colspan="4" class="text-center py-3" style="color:var(--text-muted)">Loading...</td></tr>
             </tbody>
         </table>
     </div>
@@ -50,103 +55,83 @@
 <script>
 async function loadDashboard() {
     try {
-        const data = await fetchAPI('/api/overview');
-        const container = document.getElementById('projectCards');
-        let html = '';
+        var data = await fetchAPI('/api/overview');
+        var container = document.getElementById('projectCards');
+        var html = '';
 
-        for (const p of data.projects) {
-            const color = p.id === 'infiniteo' ? '#0d6efd' : '#198754';
-            const colorName = p.id === 'infiniteo' ? 'primary' : 'success';
-            const statusText = p.last_run ? p.last_run.status : 'No runs';
-            const statusBg = p.last_run ? statusColor(p.last_run.status) : 'secondary';
-            const successRate = p.total_runs > 0 ? Math.round(p.success_runs / p.total_runs * 100) : 0;
+        for (var i = 0; i < data.projects.length; i++) {
+            var p = data.projects[i];
+            var color = p.id === 'infiniteo' ? '#3b82f6' : '#10b981';
+            var colorName = p.id === 'infiniteo' ? 'primary' : 'success';
+            var statusText = p.last_run ? p.last_run.status : 'No runs';
+            var statusBg = p.last_run ? statusColor(p.last_run.status) : 'secondary';
+            var successRate = p.total_runs > 0 ? Math.round(p.success_runs / p.total_runs * 100) : 0;
+            var hasAccounts = p.linkedin_connected || p.twitter_connected;
 
-            html += `
-            <div class="col-12 col-lg-6">
-                <div class="project-card">
-                    <div class="project-card-header" style="background:linear-gradient(135deg,${color}22 0%,${color}11 100%);border-bottom:1px solid ${color}33">
-                        <div>
-                            <h5 class="mb-0 fw-bold">${p.display_name}</h5>
-                            <div class="d-flex gap-3 mt-1">
-                                <small class="d-flex align-items-center gap-1">
-                                    <span class="conn-dot ${p.linkedin_connected ? 'on' : 'off'}"></span>
-                                    <span class="${p.linkedin_connected ? 'text-success' : 'text-muted'}" style="font-size:0.78rem">LinkedIn</span>
-                                </small>
-                                <small class="d-flex align-items-center gap-1">
-                                    <span class="conn-dot ${p.twitter_connected ? 'on' : 'off'}"></span>
-                                    <span class="${p.twitter_connected ? 'text-success' : 'text-muted'}" style="font-size:0.78rem">Twitter</span>
-                                </small>
-                            </div>
-                        </div>
-                        <span class="badge bg-${statusBg}">${statusText}</span>
-                    </div>
-                    <div class="project-card-body">
-                        <div class="row g-2 mb-3">
-                            <div class="col-3">
-                                <div class="stat-card">
-                                    <div class="stat-value text-${colorName}">${p.today_posts}</div>
-                                    <div class="stat-label">Today</div>
-                                </div>
-                            </div>
-                            <div class="col-3">
-                                <div class="stat-card">
-                                    <div class="stat-value">${p.total_posts}</div>
-                                    <div class="stat-label">Posts</div>
-                                </div>
-                            </div>
-                            <div class="col-3">
-                                <div class="stat-card">
-                                    <div class="stat-value">${p.total_articles}</div>
-                                    <div class="stat-label">Articles</div>
-                                </div>
-                            </div>
-                            <div class="col-3">
-                                <div class="stat-card">
-                                    <div class="stat-value text-${successRate >= 80 ? 'success' : successRate >= 50 ? 'warning' : 'secondary'}">${p.total_runs > 0 ? successRate + '%' : '-'}</div>
-                                    <div class="stat-label">Success</div>
-                                </div>
-                            </div>
-                        </div>
+            html += '<div class="col-12 col-lg-6">' +
+                '<div class="project-card fade-in-up" style="animation-delay:' + (i * 0.1) + 's">' +
+                    '<div class="project-card-header" style="background:linear-gradient(135deg,' + color + '18 0%,' + color + '08 100%);border-bottom:1px solid ' + color + '25">' +
+                        '<div>' +
+                            '<h5 class="mb-1" style="font-weight:700;font-size:1.15rem">' + p.display_name + '</h5>' +
+                            '<div class="d-flex gap-3">' +
+                                '<small class="d-flex align-items-center gap-1">' +
+                                    '<span class="conn-dot ' + (p.linkedin_connected ? 'on' : 'off') + '"></span>' +
+                                    '<span style="font-size:0.78rem;color:' + (p.linkedin_connected ? 'var(--accent-green)' : 'var(--text-muted)') + '">LinkedIn</span>' +
+                                '</small>' +
+                                '<small class="d-flex align-items-center gap-1">' +
+                                    '<span class="conn-dot ' + (p.twitter_connected ? 'on' : 'off') + '"></span>' +
+                                    '<span style="font-size:0.78rem;color:' + (p.twitter_connected ? 'var(--accent-green)' : 'var(--text-muted)') + '">Twitter</span>' +
+                                '</small>' +
+                            '</div>' +
+                        '</div>' +
+                        '<span class="badge bg-' + statusBg + '">' + statusText + '</span>' +
+                    '</div>' +
+                    '<div class="project-card-body">' +
+                        '<div class="row g-2 mb-3">' +
+                            '<div class="col-3"><div class="stat-card"><div class="stat-value text-' + colorName + '">' + p.today_posts + '</div><div class="stat-label">Today</div></div></div>' +
+                            '<div class="col-3"><div class="stat-card"><div class="stat-value">' + p.total_posts + '</div><div class="stat-label">Posts</div></div></div>' +
+                            '<div class="col-3"><div class="stat-card"><div class="stat-value">' + p.total_articles + '</div><div class="stat-label">Articles</div></div></div>' +
+                            '<div class="col-3"><div class="stat-card"><div class="stat-value text-' + (successRate >= 80 ? 'success' : successRate >= 50 ? 'warning' : 'secondary') + '">' + (p.total_runs > 0 ? successRate + '%' : '-') + '</div><div class="stat-label">Success</div></div></div>' +
+                        '</div>' +
+                        '<div class="info-row">' +
+                            '<span class="label"><i class="bi bi-clock me-1"></i>Last Run</span>' +
+                            '<span>' + (p.last_run ? formatTime(p.last_run.time) : '<span style="color:var(--text-muted)">Never</span>') + '</span>' +
+                        '</div>' +
+                        '<div class="info-row">' +
+                            '<span class="label"><i class="bi bi-calendar-event me-1"></i>Next Run</span>' +
+                            '<span>' + (p.next_run ? formatTime(p.next_run) : '<span style="color:var(--text-muted)">Via Vercel cron</span>') + '</span>' +
+                        '</div>' +
 
-                        <div class="info-row">
-                            <span class="label"><i class="bi bi-clock me-1"></i>Last Run</span>
-                            <span>${p.last_run ? formatTime(p.last_run.time) : '<span class=text-muted>Never</span>'}</span>
-                        </div>
-                        <div class="info-row mb-2">
-                            <span class="label"><i class="bi bi-calendar-event me-1"></i>Next Run</span>
-                            <span>${p.next_run ? formatTime(p.next_run) : '<span class=text-muted>Via Vercel cron</span>'}</span>
-                        </div>
+                        (!hasAccounts ?
+                            '<div class="alert alert-warning py-2 px-3 mt-3 mb-0" style="font-size:0.84rem"><i class="bi bi-exclamation-triangle me-1"></i>No accounts connected. <a href="/profiles" class="alert-link fw-bold">Connect now</a></div>' : '') +
 
-                        ${!p.linkedin_connected && !p.twitter_connected ?
-                            '<div class="alert alert-warning py-2 px-3 mb-0 small"><i class="bi bi-exclamation-triangle me-1"></i>No accounts connected. <a href="/profiles" class="alert-link">Connect now</a></div>' : ''}
-
-                        <button class="btn btn-${colorName} w-100 btn-run mt-2" onclick="triggerPipeline('${p.id}', this)"
-                            ${!p.linkedin_connected && !p.twitter_connected ? 'disabled title="Connect an account first"' : ''}>
-                            <i class="bi bi-play-fill me-1"></i> Run Now
-                        </button>
-                    </div>
-                </div>
-            </div>`;
+                        '<button class="btn btn-' + colorName + ' w-100 btn-run mt-3" onclick="triggerPipeline(\'' + p.id + '\', this)"' +
+                            (!hasAccounts ? ' disabled title="Connect an account first"' : '') + '>' +
+                            '<i class="bi bi-play-fill me-1"></i> Run Pipeline' +
+                        '</button>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
         }
 
-        container.innerHTML = html || '<div class="col-12 empty-state"><i class="bi bi-folder2-open d-block"></i><h5>No projects</h5></div>';
+        container.innerHTML = html || '<div class="col-12 empty-state"><i class="bi bi-folder2-open"></i><h5>No projects configured</h5><p>Add a project in Settings to get started</p></div>';
 
         // Recent runs
-        const tbody = document.getElementById('recentRuns');
+        var tbody = document.getElementById('recentRuns');
         if (data.recent_runs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4"><i class="bi bi-lightning d-block mb-2" style="font-size:1.5rem"></i>No runs yet. Hit "Run Now"!</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state" style="padding:32px"><i class="bi bi-lightning"></i><h5>No runs yet</h5><p>Hit "Run Pipeline" to get started</p></div></td></tr>';
         } else {
-            tbody.innerHTML = data.recent_runs.map(run => `
-                <tr style="cursor:pointer" onclick="window.location='/executions'">
-                    <td><strong>${run.project_id}</strong></td>
-                    <td><span class="badge bg-dark border">${run.trigger_type}</span></td>
-                    <td><span class="badge bg-${statusColor(run.status)}">${run.status}</span></td>
-                    <td class="text-muted small">${formatTime(run.started_at)}</td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = data.recent_runs.map(function(run) {
+                return '<tr style="cursor:pointer" onclick="window.location=\'/executions\'">' +
+                    '<td><strong>' + run.project_id + '</strong></td>' +
+                    '<td><span class="badge bg-dark border" style="font-size:0.73rem">' + run.trigger_type + '</span></td>' +
+                    '<td><span class="badge bg-' + statusColor(run.status) + '">' + run.status + '</span></td>' +
+                    '<td style="color:var(--text-muted);font-size:0.85rem">' + formatTime(run.started_at) + '</td>' +
+                '</tr>';
+            }).join('');
         }
 
-        document.getElementById('lastRefresh').innerHTML = '<i class="bi bi-check-circle me-1 text-success"></i>' + new Date().toLocaleTimeString();
+        document.getElementById('lastRefresh').innerHTML = '<i class="bi bi-check-circle me-1" style="color:var(--accent-green)"></i>' + new Date().toLocaleTimeString();
     } catch (e) {
         console.error('Dashboard load error:', e);
     }
@@ -156,7 +141,7 @@ async function triggerPipeline(projectId, btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Running...';
     try {
-        const result = await fetchAPI('/api/runs/trigger', {
+        var result = await fetchAPI('/api/runs/trigger', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({project_id: projectId})
@@ -167,7 +152,7 @@ async function triggerPipeline(projectId, btn) {
         showToast('Error: ' + e.message, 'danger');
     } finally {
         btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-play-fill me-1"></i> Run Now';
+        btn.innerHTML = '<i class="bi bi-play-fill me-1"></i> Run Pipeline';
     }
 }
 

@@ -4,54 +4,42 @@
 
 {% block extra_head %}
 <style>
-    .post-card {
-        border-radius: 12px;
-        border: 1px solid rgba(255,255,255,0.08);
-        overflow: hidden;
-        transition: all 0.2s;
-    }
-    .post-card:hover {
-        border-color: rgba(255,255,255,0.15);
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(0,0,0,0.3);
-    }
     .post-platform {
-        padding: 10px 16px;
+        padding: 12px 18px;
         display: flex;
         align-items: center;
         justify-content: space-between;
         font-size: 0.85rem;
     }
-    .post-platform.linkedin { border-left: 3px solid #0a66c2; }
-    .post-platform.twitter { border-left: 3px solid #1d9bf0; }
+    .post-platform.linkedin { border-left: 3px solid #0a66c2; background: rgba(10,102,194,0.06); }
+    .post-platform.twitter { border-left: 3px solid #1d9bf0; background: rgba(29,155,240,0.06); }
     .post-content {
-        padding: 16px;
+        padding: 18px;
         font-size: 0.88rem;
-        line-height: 1.6;
+        line-height: 1.7;
         white-space: pre-wrap;
         font-family: inherit;
-        max-height: 200px;
+        max-height: 220px;
         overflow-y: auto;
     }
     .post-footer {
-        padding: 10px 16px;
-        border-top: 1px solid rgba(255,255,255,0.05);
+        padding: 12px 18px;
+        border-top: 1px solid var(--border-color);
         display: flex;
         align-items: center;
         justify-content: space-between;
         font-size: 0.8rem;
     }
-    .char-count { font-size: 0.75rem; color: #8b949e; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <div>
-        <h3 class="mb-0"><i class="bi bi-pencil-square me-2"></i>Content</h3>
-        <p class="text-muted mb-0 small">Generated posts from your pipeline</p>
+        <h3 class="mb-1" style="font-weight:700;letter-spacing:-0.3px"><i class="bi bi-pencil-square me-2" style="color:var(--accent-cyan)"></i>Content</h3>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin:0">AI-generated posts from your pipeline</p>
     </div>
-    <select class="form-select form-select-sm w-auto" id="filterProject" style="border-radius:8px">
+    <select class="form-select form-select-sm" id="filterProject" style="width:auto;border-radius:var(--radius-sm)">
         <option value="">All Projects</option>
         <option value="infiniteo">Infiniteo</option>
         <option value="yourops">YourOps</option>
@@ -60,7 +48,7 @@
 
 <div id="postsContainer" class="row g-3">
     <div class="col-12 page-loader">
-        <div class="spinner-border spinner-border-sm" role="status"></div>
+        <div class="spinner-border spinner-border-sm"></div>
         Loading content...
     </div>
 </div>
@@ -81,7 +69,7 @@ async function loadPosts() {
     var container = document.getElementById('postsContainer');
 
     if (data.posts.length === 0) {
-        container.innerHTML = '<div class="col-12 empty-state"><i class="bi bi-pencil-square d-block"></i><h5>No content yet</h5><p>Run the pipeline from the Dashboard to generate posts</p></div>';
+        container.innerHTML = '<div class="col-12 empty-state"><i class="bi bi-pencil-square"></i><h5>No content yet</h5><p>Run the pipeline from the Dashboard to generate posts</p></div>';
         return;
     }
 
@@ -98,7 +86,7 @@ async function loadPosts() {
         var escaped = post.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         var charCount = post.content.length;
         var maxChar = post.platform === 'twitter' ? 280 : 3000;
-        var countColor = charCount > maxChar * 0.9 ? 'text-warning' : 'text-muted';
+        var countColor = charCount > maxChar * 0.9 ? 'var(--accent-amber)' : 'var(--text-muted)';
 
         return '<div class="col-12 col-md-6">' +
             '<div class="post-card">' +
@@ -115,19 +103,19 @@ async function loadPosts() {
                 '<div class="post-content">' + escaped + '</div>' +
                 '<div class="post-footer">' +
                     '<div>' +
-                        '<a href="' + post.article_url + '" target="_blank" class="text-muted text-decoration-none small">' +
+                        '<a href="' + post.article_url + '" target="_blank" style="color:var(--text-muted);text-decoration:none;font-size:0.82rem">' +
                             '<i class="bi bi-link-45deg me-1"></i>' + ((post.article_title || 'Article').substring(0, 40)) +
                         '</a>' +
                     '</div>' +
                     '<div class="d-flex align-items-center gap-2">' +
-                        '<span class="char-count ' + countColor + '">' + charCount + '/' + maxChar + '</span>' +
+                        '<span style="font-size:0.75rem;color:' + countColor + '">' + charCount + '/' + maxChar + '</span>' +
                         '<button class="btn btn-sm btn-outline-secondary" style="font-size:0.75rem;padding:2px 8px" data-post-id="' + post.id + '" onclick="copyPost(this)">' +
                             '<i class="bi bi-clipboard"></i>' +
                         '</button>' +
                     '</div>' +
                 '</div>' +
-                '<div class="px-3 pb-2">' +
-                    '<div class="d-flex align-items-center gap-1">' + publishStatus + '<span class="text-muted small ms-auto">' + formatTime(post.created_at) + '</span></div>' +
+                '<div style="padding:8px 18px;border-top:1px solid var(--border-color)">' +
+                    '<div class="d-flex align-items-center gap-1">' + publishStatus + '<span style="color:var(--text-muted);font-size:0.78rem;margin-left:auto">' + formatTime(post.created_at) + '</span></div>' +
                 '</div>' +
             '</div>' +
         '</div>';

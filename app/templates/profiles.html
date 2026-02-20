@@ -2,69 +2,18 @@
 {% set active_page = "profiles" %}
 {% block title %}Connections{% endblock %}
 
-{% block extra_head %}
-<style>
-    .platform-card {
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 12px;
-        overflow: hidden;
-        transition: border-color 0.2s;
-    }
-    .platform-card:hover { border-color: rgba(255,255,255,0.2); }
-    .platform-header {
-        padding: 16px 20px;
-        display: flex; align-items: center; justify-content: space-between;
-    }
-    .platform-header.linkedin { background: linear-gradient(135deg, #0a66c2 0%, #004182 100%); }
-    .platform-header.twitter { background: linear-gradient(135deg, #1d9bf0 0%, #0c7abf 100%); }
-    .platform-body { padding: 20px; }
-    .status-dot {
-        width: 10px; height: 10px; border-radius: 50%;
-        display: inline-block; margin-right: 6px;
-    }
-    .status-dot.connected { background: #198754; box-shadow: 0 0 6px #198754; }
-    .status-dot.disconnected { background: #6c757d; }
-    .status-dot.expiring { background: #ffc107; box-shadow: 0 0 6px #ffc107; }
-    .account-row {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 8px 12px; border-radius: 8px;
-        background: rgba(255,255,255,0.03); margin-bottom: 8px;
-    }
-    .project-section { margin-bottom: 32px; }
-    .project-title {
-        font-size: 1.25rem; font-weight: 600; margin-bottom: 16px;
-        display: flex; align-items: center; gap: 10px;
-    }
-    .project-badge {
-        font-size: 0.7rem; padding: 3px 10px; border-radius: 20px;
-        font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;
-    }
-    .connect-btn {
-        padding: 10px 24px; border-radius: 8px; font-weight: 600;
-        display: inline-flex; align-items: center; gap: 8px;
-        transition: all 0.2s;
-    }
-    .connect-btn:hover { transform: translateY(-1px); }
-    .disconnect-btn { font-size: 0.8rem; padding: 4px 12px; border-radius: 6px; }
-    .token-info { font-size: 0.78rem; color: #9ca3af; margin-top: 4px; }
-    .help-text { font-size: 0.82rem; color: #9ca3af; line-height: 1.5; }
-    .twitter-form .form-label { font-size: 0.82rem; font-weight: 500; margin-bottom: 4px; }
-    .twitter-form .form-control { font-size: 0.85rem; font-family: monospace; }
-</style>
-{% endblock %}
-
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
     <div>
-        <h3 class="mb-1"><i class="bi bi-plug me-2"></i>Connections</h3>
-        <p class="text-muted mb-0 small">Connect your social media accounts to each project</p>
+        <h3 class="mb-1" style="font-weight:700;letter-spacing:-0.3px"><i class="bi bi-plug-fill me-2" style="color:var(--accent-green)"></i>Connections</h3>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin:0">Connect your social media accounts to each project</p>
     </div>
 </div>
 
 {% raw %}
 <div id="profilesContainer">
-    <div class="text-center text-muted py-5">
-        <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+    <div class="page-loader">
+        <div class="spinner-border spinner-border-sm"></div>
         Loading connections...
     </div>
 </div>
@@ -73,188 +22,141 @@
 
 {% block extra_scripts %}
 <script>
-let allProjects = [];
-let allProfiles = [];
+var allProjects = [];
+var allProfiles = [];
 
 async function loadData() {
-    const [projects, profiles] = await Promise.all([
-        fetchAPI('/api/projects'),
-        fetchAPI('/api/profiles'),
-    ]);
-    allProjects = projects;
-    allProfiles = profiles;
+    var results = await Promise.all([fetchAPI('/api/projects'), fetchAPI('/api/profiles')]);
+    allProjects = results[0];
+    allProfiles = results[1];
     render();
 }
 
 function getStatus(profile) {
     if (!profile || !profile.has_token) return { text: 'Not Connected', cls: 'disconnected', color: 'secondary' };
     if (profile.token_expires_at) {
-        let ts = profile.token_expires_at;
-        if (!ts.endsWith('Z') && !ts.includes('+') && !ts.includes('-', 10)) ts += 'Z';
-        const exp = new Date(ts);
-        const days = Math.floor((exp - new Date()) / 86400000);
+        var ts = profile.token_expires_at;
+        if (!ts.endsWith('Z') && ts.indexOf('+') === -1 && ts.lastIndexOf('-') < 10) ts += 'Z';
+        var exp = new Date(ts);
+        var days = Math.floor((exp - new Date()) / 86400000);
         if (days < 0) return { text: 'Expired', cls: 'disconnected', color: 'danger' };
-        if (days < 7) return { text: `Expires in ${days}d`, cls: 'expiring', color: 'warning' };
-        return { text: `Connected (${days}d left)`, cls: 'connected', color: 'success' };
+        if (days < 7) return { text: 'Expires in ' + days + 'd', cls: 'expiring', color: 'warning' };
+        return { text: 'Connected (' + days + 'd left)', cls: 'connected', color: 'success' };
     }
     return { text: 'Connected', cls: 'connected', color: 'success' };
 }
 
 function render() {
-    const container = document.getElementById('profilesContainer');
-    let html = '';
+    var container = document.getElementById('profilesContainer');
+    var html = '';
 
-    for (const project of allProjects) {
-        const pid = project.id;
-        const pName = project.display_name;
-        const profiles = allProfiles.filter(p => p.project_id === pid);
-        const linkedinProfiles = profiles.filter(p => p.platform === 'linkedin');
-        const twitterProfile = profiles.find(p => p.platform === 'twitter');
-        const linkedinConnected = linkedinProfiles.some(p => p.has_token);
-        const twitterConnected = twitterProfile && twitterProfile.has_token;
+    for (var idx = 0; idx < allProjects.length; idx++) {
+        var project = allProjects[idx];
+        var pid = project.id;
+        var pName = project.display_name;
+        var projColor = pid === 'infiniteo' ? 'primary' : 'success';
+        var profiles = allProfiles.filter(function(p) { return p.project_id === pid; });
+        var linkedinProfiles = profiles.filter(function(p) { return p.platform === 'linkedin'; });
+        var twitterProfile = profiles.find(function(p) { return p.platform === 'twitter'; });
+        var linkedinConnected = linkedinProfiles.some(function(p) { return p.has_token; });
+        var twitterConnected = twitterProfile && twitterProfile.has_token;
+        var anyConnected = linkedinConnected || twitterConnected;
 
-        html += `<div class="project-section">`;
-        html += `<div class="project-title">
-            <span>${pName}</span>
-            <span class="project-badge bg-${linkedinConnected || twitterConnected ? 'success' : 'secondary'}">
-                ${linkedinConnected || twitterConnected ? 'Active' : 'Setup needed'}
-            </span>
-        </div>`;
+        html += '<div style="margin-bottom:36px">';
+        html += '<div class="d-flex align-items-center gap-2 mb-3">' +
+            '<h5 style="font-weight:700;margin:0">' + pName + '</h5>' +
+            '<span class="badge bg-' + (anyConnected ? 'success' : 'secondary') + '" style="font-size:0.7rem">' + (anyConnected ? 'Active' : 'Setup Needed') + '</span>' +
+        '</div>';
 
-        html += `<div class="row g-3">`;
+        html += '<div class="row g-3">';
 
-        // ====== LINKEDIN CARD ======
-        html += `<div class="col-12 col-lg-6"><div class="platform-card">`;
-        html += `<div class="platform-header linkedin">
-            <div class="d-flex align-items-center gap-2">
-                <i class="bi bi-linkedin fs-5"></i><span class="fw-bold">LinkedIn</span>
-            </div>
-            <span class="badge bg-${linkedinConnected ? 'light text-dark' : 'dark bg-opacity-50'}">
-                <span class="status-dot ${linkedinConnected ? 'connected' : 'disconnected'}"></span>
-                ${linkedinConnected ? 'Connected' : 'Not Connected'}
-            </span>
-        </div>`;
-        html += `<div class="platform-body">`;
+        // ====== LINKEDIN ======
+        html += '<div class="col-12 col-lg-6"><div class="platform-card">';
+        html += '<div class="platform-header linkedin">' +
+            '<div class="d-flex align-items-center gap-2"><i class="bi bi-linkedin fs-5"></i><strong>LinkedIn</strong></div>' +
+            '<span class="badge ' + (linkedinConnected ? 'bg-light text-dark' : 'bg-dark bg-opacity-50') + '">' +
+                '<span class="status-dot ' + (linkedinConnected ? 'connected' : 'disconnected') + '"></span>' +
+                (linkedinConnected ? 'Connected' : 'Not Connected') +
+            '</span>' +
+        '</div>';
+        html += '<div class="platform-body">';
 
         if (linkedinConnected) {
-            for (const p of linkedinProfiles) {
-                const st = getStatus(p);
-                const icon = p.account_type === 'personal' ? 'person-fill' : 'building-fill';
-                const label = p.account_type === 'personal' ? 'Personal' : 'Organization';
-                html += `<div class="account-row">
-                    <div>
-                        <i class="bi bi-${icon} me-1"></i>
-                        <span class="small fw-medium">${label}</span>
-                        ${p.platform_user_id ? `<span class="text-muted small ms-1">(${p.platform_user_id})</span>` : ''}
-                    </div>
-                    <span class="badge bg-${st.color}">${st.text}</span>
-                </div>`;
+            for (var li = 0; li < linkedinProfiles.length; li++) {
+                var p = linkedinProfiles[li];
+                var st = getStatus(p);
+                var icon = p.account_type === 'personal' ? 'person-fill' : 'building-fill';
+                var label = p.account_type === 'personal' ? 'Personal' : 'Organization';
+                html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:var(--radius-sm);background:var(--bg-glass);margin-bottom:8px;border:1px solid var(--border-color)">' +
+                    '<div><i class="bi bi-' + icon + ' me-1"></i><span style="font-size:0.85rem;font-weight:500">' + label + '</span>' +
+                        (p.platform_user_id ? '<span style="color:var(--text-muted);font-size:0.8rem;margin-left:6px">(' + p.platform_user_id + ')</span>' : '') +
+                    '</div>' +
+                    '<span class="badge bg-' + st.color + '">' + st.text + '</span>' +
+                '</div>';
             }
-            html += `<div class="token-info mt-2">
-                <i class="bi bi-shield-check me-1"></i>
-                Auto-detects personal + organization. Token auto-refreshes before expiry.
-            </div>`;
-            html += `<div class="d-flex gap-2 mt-3 flex-wrap">
-                <a href="/auth/linkedin/start?project_id=${pid}" class="btn btn-outline-primary connect-btn">
-                    <i class="bi bi-arrow-clockwise"></i> Reconnect
-                </a>
-                <button class="btn btn-outline-danger disconnect-btn" onclick="disconnectPlatform('${pid}', 'linkedin')">
-                    <i class="bi bi-x-circle me-1"></i>Disconnect
-                </button>
-            </div>`;
+            html += '<div style="font-size:0.78rem;color:var(--text-muted);margin-top:10px"><i class="bi bi-shield-check me-1" style="color:var(--accent-green)"></i>Auto-detects personal + organization. Token auto-refreshes.</div>';
+            html += '<div class="d-flex gap-2 mt-3 flex-wrap">' +
+                '<a href="/auth/linkedin/start?project_id=' + pid + '" class="btn btn-outline-primary" style="font-size:0.85rem;font-weight:550"><i class="bi bi-arrow-clockwise me-1"></i>Reconnect</a>' +
+                '<button class="btn btn-outline-danger" style="font-size:0.82rem" onclick="disconnectPlatform(\'' + pid + '\', \'linkedin\')"><i class="bi bi-x-circle me-1"></i>Disconnect</button>' +
+            '</div>';
         } else {
-            html += `<p class="help-text mb-3">
-                <i class="bi bi-info-circle me-1"></i>
-                Click below to connect your LinkedIn. Auto-detects your personal profile
-                and any organization pages you admin. <strong>One click, done.</strong>
-            </p>`;
-            html += `<a href="/auth/linkedin/start?project_id=${pid}" class="btn btn-primary connect-btn w-100">
-                <i class="bi bi-linkedin"></i> Connect LinkedIn
-            </a>`;
+            html += '<p style="font-size:0.85rem;color:var(--text-secondary);line-height:1.6;margin-bottom:16px"><i class="bi bi-info-circle me-1"></i>Click below to connect your LinkedIn. Auto-detects your personal profile and any organization pages you admin. <strong>One click, done.</strong></p>';
+            html += '<a href="/auth/linkedin/start?project_id=' + pid + '" class="btn btn-primary w-100" style="font-weight:600"><i class="bi bi-linkedin me-2"></i>Connect LinkedIn</a>';
         }
 
-        html += `</div></div></div>`; // platform-body, platform-card, col
+        html += '</div></div></div>';
 
-        // ====== TWITTER CARD ======
-        html += `<div class="col-12 col-lg-6"><div class="platform-card">`;
-        html += `<div class="platform-header twitter">
-            <div class="d-flex align-items-center gap-2">
-                <i class="bi bi-twitter-x fs-5"></i><span class="fw-bold">Twitter / X</span>
-            </div>
-            <span class="badge bg-${twitterConnected ? 'light text-dark' : 'dark bg-opacity-50'}">
-                <span class="status-dot ${twitterConnected ? 'connected' : 'disconnected'}"></span>
-                ${twitterConnected ? 'Connected' : 'Not Connected'}
-            </span>
-        </div>`;
-        html += `<div class="platform-body">`;
+        // ====== TWITTER ======
+        html += '<div class="col-12 col-lg-6"><div class="platform-card">';
+        html += '<div class="platform-header twitter">' +
+            '<div class="d-flex align-items-center gap-2"><i class="bi bi-twitter-x fs-5"></i><strong>Twitter / X</strong></div>' +
+            '<span class="badge ' + (twitterConnected ? 'bg-light text-dark' : 'bg-dark bg-opacity-50') + '">' +
+                '<span class="status-dot ' + (twitterConnected ? 'connected' : 'disconnected') + '"></span>' +
+                (twitterConnected ? 'Connected' : 'Not Connected') +
+            '</span>' +
+        '</div>';
+        html += '<div class="platform-body">';
 
         if (twitterConnected) {
-            html += `<div class="account-row">
-                <div><i class="bi bi-person-fill me-1"></i><span class="small fw-medium">API Connected</span></div>
-                <span class="badge bg-success">Active</span>
-            </div>`;
-            html += `<div class="token-info mt-2">
-                <i class="bi bi-key-fill me-1"></i> Using stored API credentials. No expiration.
-            </div>`;
-            html += `<div class="d-flex gap-2 mt-3 flex-wrap">
-                <button class="btn btn-outline-info connect-btn" onclick="toggleTwitterForm('${pid}')">
-                    <i class="bi bi-pencil"></i> Update Keys
-                </button>
-                <button class="btn btn-outline-danger disconnect-btn" onclick="disconnectPlatform('${pid}', 'twitter')">
-                    <i class="bi bi-x-circle me-1"></i>Disconnect
-                </button>
-            </div>`;
-            html += `<div id="twitter-form-${pid}" class="twitter-form mt-3" style="display:none;">`;
+            html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:var(--radius-sm);background:var(--bg-glass);margin-bottom:8px;border:1px solid var(--border-color)">' +
+                '<div><i class="bi bi-key-fill me-1"></i><span style="font-size:0.85rem;font-weight:500">API Connected</span></div>' +
+                '<span class="badge bg-success">Active</span>' +
+            '</div>';
+            html += '<div style="font-size:0.78rem;color:var(--text-muted);margin-top:10px"><i class="bi bi-key-fill me-1" style="color:var(--accent-cyan)"></i>Using stored API credentials. No expiration.</div>';
+            html += '<div class="d-flex gap-2 mt-3 flex-wrap">' +
+                '<button class="btn btn-outline-info" style="font-size:0.85rem;font-weight:550" onclick="toggleTwitterForm(\'' + pid + '\')"><i class="bi bi-pencil me-1"></i>Update Keys</button>' +
+                '<button class="btn btn-outline-danger" style="font-size:0.82rem" onclick="disconnectPlatform(\'' + pid + '\', \'twitter\')"><i class="bi bi-x-circle me-1"></i>Disconnect</button>' +
+            '</div>';
+            html += '<div id="twitter-form-' + pid + '" style="display:none;margin-top:16px">';
         } else {
-            html += `<p class="help-text mb-3">
-                <i class="bi bi-info-circle me-1"></i>
-                Twitter requires API keys from the
-                <a href="https://developer.x.com/en/portal/dashboard" target="_blank" class="text-info">X Developer Portal</a>.
-                Create a free app, then paste your 4 keys below.
-            </p>`;
-            html += `<div id="twitter-form-${pid}" class="twitter-form">`;
+            html += '<p style="font-size:0.85rem;color:var(--text-secondary);line-height:1.6;margin-bottom:16px"><i class="bi bi-info-circle me-1"></i>Twitter requires API keys from the <a href="https://developer.x.com/en/portal/dashboard" target="_blank" style="color:var(--accent-cyan);font-weight:550">X Developer Portal</a>. Create a free app, then paste your 4 keys below.</p>';
+            html += '<div id="twitter-form-' + pid + '" style="margin-top:0">';
         }
 
-        html += `
-            <div class="mb-2">
-                <label class="form-label">API Key</label>
-                <input type="text" class="form-control form-control-sm" id="tw-key-${pid}" placeholder="e.g. xAi1bC2dE3fG4h...">
-            </div>
-            <div class="mb-2">
-                <label class="form-label">API Secret</label>
-                <input type="password" class="form-control form-control-sm" id="tw-secret-${pid}" placeholder="e.g. kL5mN6oP7qR8s...">
-            </div>
-            <div class="mb-2">
-                <label class="form-label">Access Token</label>
-                <input type="text" class="form-control form-control-sm" id="tw-access-${pid}" placeholder="e.g. 12345-xY9zW8v...">
-            </div>
-            <div class="mb-2">
-                <label class="form-label">Access Secret</label>
-                <input type="password" class="form-control form-control-sm" id="tw-access-secret-${pid}" placeholder="e.g. aB3cD4eF5gH6...">
-            </div>
-            <button class="btn btn-info connect-btn w-100 mt-2" onclick="saveTwitter('${pid}')">
-                <i class="bi bi-check-circle"></i> ${twitterConnected ? 'Update' : 'Connect'} Twitter
-            </button>
-        </div>`;
+        html += '<div class="mb-2"><label class="form-label" style="font-size:0.82rem"><i class="bi bi-key me-1"></i>API Key</label><input type="text" class="form-control form-control-sm" id="tw-key-' + pid + '" placeholder="e.g. xAi1bC2dE3fG4h..." style="font-family:monospace;font-size:0.82rem"></div>' +
+            '<div class="mb-2"><label class="form-label" style="font-size:0.82rem"><i class="bi bi-key-fill me-1"></i>API Secret</label><input type="password" class="form-control form-control-sm" id="tw-secret-' + pid + '" placeholder="e.g. kL5mN6oP7qR8s..." style="font-family:monospace;font-size:0.82rem"></div>' +
+            '<div class="mb-2"><label class="form-label" style="font-size:0.82rem"><i class="bi bi-person-badge me-1"></i>Access Token</label><input type="text" class="form-control form-control-sm" id="tw-access-' + pid + '" placeholder="e.g. 12345-xY9zW8v..." style="font-family:monospace;font-size:0.82rem"></div>' +
+            '<div class="mb-2"><label class="form-label" style="font-size:0.82rem"><i class="bi bi-person-badge-fill me-1"></i>Access Secret</label><input type="password" class="form-control form-control-sm" id="tw-access-secret-' + pid + '" placeholder="e.g. aB3cD4eF5gH6..." style="font-family:monospace;font-size:0.82rem"></div>' +
+            '<button class="btn btn-info w-100 mt-2" style="font-weight:600" onclick="saveTwitter(\'' + pid + '\')"><i class="bi bi-check-circle me-1"></i>' + (twitterConnected ? 'Update' : 'Connect') + ' Twitter</button>' +
+        '</div>';
 
-        html += `</div></div></div>`; // platform-body, platform-card, col
-
-        html += `</div></div>`; // row, project-section
+        html += '</div></div></div>';
+        html += '</div></div>';
     }
 
-    container.innerHTML = html || '<div class="text-muted text-center py-5">No projects found.</div>';
+    container.innerHTML = html || '<div class="empty-state"><i class="bi bi-plug"></i><h5>No projects found</h5></div>';
 }
 
 function toggleTwitterForm(pid) {
-    const form = document.getElementById('twitter-form-' + pid);
+    var form = document.getElementById('twitter-form-' + pid);
     form.style.display = form.style.display === 'none' ? 'block' : 'none';
 }
 
 async function saveTwitter(pid) {
-    const apiKey = document.getElementById('tw-key-' + pid).value.trim();
-    const apiSecret = document.getElementById('tw-secret-' + pid).value.trim();
-    const accessToken = document.getElementById('tw-access-' + pid).value.trim();
-    const accessSecret = document.getElementById('tw-access-secret-' + pid).value.trim();
+    var apiKey = document.getElementById('tw-key-' + pid).value.trim();
+    var apiSecret = document.getElementById('tw-secret-' + pid).value.trim();
+    var accessToken = document.getElementById('tw-access-' + pid).value.trim();
+    var accessSecret = document.getElementById('tw-access-secret-' + pid).value.trim();
 
     if (!apiKey || !apiSecret || !accessToken || !accessSecret) {
         showToast('All 4 Twitter credentials are required', 'warning');
@@ -265,10 +167,7 @@ async function saveTwitter(pid) {
         await fetchAPI('/api/profiles/twitter/' + pid, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                api_key: apiKey, api_secret: apiSecret,
-                access_token: accessToken, access_secret: accessSecret,
-            }),
+            body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret, access_token: accessToken, access_secret: accessSecret }),
         });
         showToast('Twitter connected successfully!', 'success');
         await loadData();
@@ -278,7 +177,7 @@ async function saveTwitter(pid) {
 }
 
 async function disconnectPlatform(pid, platform) {
-    if (!confirm('Disconnect ' + platform + ' from ' + pid + '? You can reconnect anytime.')) return;
+    if (!confirm('Disconnect ' + platform + ' from ' + pid + '?')) return;
     try {
         await fetchAPI('/api/profiles/disconnect/' + pid + '/' + platform, { method: 'POST' });
         showToast(platform + ' disconnected', 'success');
@@ -288,11 +187,10 @@ async function disconnectPlatform(pid, platform) {
     }
 }
 
-// Check URL params for success/error messages
-const params = new URLSearchParams(window.location.search);
+var params = new URLSearchParams(window.location.search);
 if (params.get('success')) {
-    const proj = params.get('project') || '';
-    showToast('LinkedIn connected for ' + (proj || 'project') + '! Personal & org auto-detected.', 'success');
+    var proj = params.get('project') || '';
+    showToast('LinkedIn connected for ' + (proj || 'project') + '!', 'success');
     history.replaceState({}, '', '/profiles');
 }
 if (params.get('error')) {

@@ -1,91 +1,126 @@
 {% extends "base.html" %}
 {% set active_page = "settings" %}
-{% block title %}Projects{% endblock %}
+{% block title %}Settings{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <div>
-        <h3 class="mb-0"><i class="bi bi-sliders me-2"></i>Project Settings</h3>
-        <p class="text-muted mb-0 small">Configure RSS feeds, schedules, and posting options</p>
+        <h3 class="mb-1" style="font-weight:700;letter-spacing:-0.3px"><i class="bi bi-gear-fill me-2" style="color:var(--accent-purple)"></i>Settings</h3>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin:0">Configure your projects, schedules, and content sources</p>
     </div>
 </div>
 
-<ul class="nav nav-pills mb-3 gap-2" id="projectTabs">
-    <li class="nav-item">
-        <a class="nav-link active" data-bs-toggle="tab" href="#tab-infiniteo" style="border-radius:8px">
-            <i class="bi bi-circle-fill text-primary me-1" style="font-size:0.5rem"></i> Infiniteo
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" data-bs-toggle="tab" href="#tab-yourops" style="border-radius:8px">
-            <i class="bi bi-circle-fill text-success me-1" style="font-size:0.5rem"></i> YourOps
-        </a>
-    </li>
-</ul>
+<ul class="nav nav-pills mb-4 gap-2" id="projectTabs"></ul>
 
-<div class="tab-content" id="projectTabContent"></div>
+<div class="tab-content" id="projectTabContent">
+    <div class="page-loader">
+        <div class="spinner-border spinner-border-sm"></div>
+        Loading settings...
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
+var projectData = {};
+
 async function loadSettings() {
     var projects = await fetchAPI('/api/projects');
+    var tabs = document.getElementById('projectTabs');
     var tabContent = document.getElementById('projectTabContent');
 
+    tabs.innerHTML = projects.map(function(p, i) {
+        var color = p.id === 'infiniteo' ? 'primary' : 'success';
+        return '<li class="nav-item">' +
+            '<a class="nav-link ' + (i === 0 ? 'active' : '') + '" data-bs-toggle="tab" href="#tab-' + p.id + '" style="border-radius:var(--radius-sm)">' +
+                '<i class="bi bi-circle-fill text-' + color + ' me-1" style="font-size:0.45rem"></i> ' + p.display_name +
+            '</a></li>';
+    }).join('');
+
     tabContent.innerHTML = projects.map(function(p, i) {
+        projectData[p.id] = p;
         var feeds = (p.rss_feeds || []).join('\n');
         var hashtags = (p.hashtags || []).join(', ');
-        var colorName = p.id === 'infiniteo' ? 'primary' : 'success';
+        var color = p.id === 'infiniteo' ? 'primary' : 'success';
+        var cronParsed = parseCron(p.schedule_cron);
 
         return '<div class="tab-pane fade ' + (i === 0 ? 'show active' : '') + '" id="tab-' + p.id + '">' +
             '<form onsubmit="saveProject(event, \'' + p.id + '\')">' +
                 '<div class="row g-3">' +
-                    '<div class="col-12 col-md-6">' +
+                    '<div class="col-12 col-lg-6">' +
                         '<div class="card">' +
-                            '<div class="card-header py-2"><h6 class="mb-0"><i class="bi bi-gear me-1"></i> General</h6></div>' +
+                            '<div class="card-header"><h6 class="mb-0"><i class="bi bi-sliders me-2" style="color:var(--accent-blue)"></i>General</h6></div>' +
                             '<div class="card-body">' +
                                 '<div class="mb-3">' +
-                                    '<label class="form-label small fw-medium">Display Name</label>' +
+                                    '<label class="form-label"><i class="bi bi-type me-1"></i>Display Name</label>' +
                                     '<input type="text" class="form-control" id="' + p.id + '-name" value="' + p.display_name + '">' +
                                 '</div>' +
-                                '<div class="mb-3">' +
-                                    '<label class="form-label small fw-medium">Schedule (Cron)</label>' +
-                                    '<input type="text" class="form-control font-monospace" id="' + p.id + '-cron" value="' + p.schedule_cron + '">' +
-                                    '<small class="text-muted">e.g. "0 14 * * *" = daily 2PM UTC</small>' +
+                                '<div class="d-flex gap-4 mb-3">' +
+                                    '<div class="form-check form-switch">' +
+                                        '<input type="checkbox" class="form-check-input" id="' + p.id + '-active" ' + (p.is_active ? 'checked' : '') + '>' +
+                                        '<label class="form-check-label" for="' + p.id + '-active" style="font-size:0.85rem;font-weight:500"><i class="bi bi-power me-1"></i>Active</label>' +
+                                    '</div>' +
+                                    '<div class="form-check form-switch">' +
+                                        '<input type="checkbox" class="form-check-input" id="' + p.id + '-twitter" ' + (p.twitter_enabled ? 'checked' : '') + '>' +
+                                        '<label class="form-check-label" for="' + p.id + '-twitter" style="font-size:0.85rem;font-weight:500"><i class="bi bi-twitter-x me-1"></i>Twitter</label>' +
+                                    '</div>' +
                                 '</div>' +
-                                '<div class="form-check form-switch mb-2">' +
-                                    '<input type="checkbox" class="form-check-input" id="' + p.id + '-twitter" ' + (p.twitter_enabled ? 'checked' : '') + '>' +
-                                    '<label class="form-check-label small" for="' + p.id + '-twitter"><i class="bi bi-twitter-x me-1"></i>Twitter posting</label>' +
-                                '</div>' +
-                                '<div class="form-check form-switch">' +
-                                    '<input type="checkbox" class="form-check-input" id="' + p.id + '-active" ' + (p.is_active ? 'checked' : '') + '>' +
-                                    '<label class="form-check-label small" for="' + p.id + '-active"><i class="bi bi-power me-1"></i>Project active</label>' +
+                                '<div class="mb-0">' +
+                                    '<label class="form-label"><i class="bi bi-hash me-1"></i>Hashtags</label>' +
+                                    '<input type="text" class="form-control" id="' + p.id + '-hashtags" value="' + hashtags + '" placeholder="#AI, #Automation, ...">' +
+                                    '<div style="font-size:0.78rem;color:var(--text-muted);margin-top:4px">Comma-separated. Used in generated posts.</div>' +
                                 '</div>' +
                             '</div>' +
                         '</div>' +
                     '</div>' +
-                    '<div class="col-12 col-md-6">' +
+                    '<div class="col-12 col-lg-6">' +
                         '<div class="card">' +
-                            '<div class="card-header py-2"><h6 class="mb-0"><i class="bi bi-rss me-1"></i> RSS Feeds</h6></div>' +
+                            '<div class="card-header"><h6 class="mb-0"><i class="bi bi-calendar-check me-2" style="color:var(--accent-green)"></i>Schedule</h6></div>' +
                             '<div class="card-body">' +
-                                '<textarea class="form-control font-monospace" id="' + p.id + '-feeds" rows="8" style="font-size:0.8rem">' + feeds + '</textarea>' +
-                                '<small class="text-muted">One URL per line</small>' +
+                                '<div class="schedule-picker">' +
+                                    '<label class="form-label mb-2"><i class="bi bi-repeat me-1"></i>Frequency</label>' +
+                                    '<div class="d-flex flex-wrap gap-2 mb-3" id="' + p.id + '-freq">' +
+                                        '<div class="schedule-option ' + (cronParsed.frequency === 'daily' ? 'active' : '') + '" data-freq="daily" onclick="setFreq(\'' + p.id + '\', \'daily\', this)"><i class="bi bi-calendar-day"></i> Every Day</div>' +
+                                        '<div class="schedule-option ' + (cronParsed.frequency === 'weekdays' ? 'active' : '') + '" data-freq="weekdays" onclick="setFreq(\'' + p.id + '\', \'weekdays\', this)"><i class="bi bi-briefcase"></i> Weekdays</div>' +
+                                        '<div class="schedule-option ' + (cronParsed.frequency === 'custom' ? 'active' : '') + '" data-freq="custom" onclick="setFreq(\'' + p.id + '\', \'custom\', this)"><i class="bi bi-calendar-week"></i> Custom</div>' +
+                                    '</div>' +
+                                    '<div id="' + p.id + '-days-wrap" style="display:' + (cronParsed.frequency === 'custom' ? 'block' : 'none') + '">' +
+                                        '<label class="form-label mb-2"><i class="bi bi-calendar3 me-1"></i>Days</label>' +
+                                        '<div class="day-picker" id="' + p.id + '-days">' +
+                                            buildDayButtons(p.id, cronParsed.days) +
+                                        '</div>' +
+                                    '</div>' +
+                                    '<label class="form-label mt-3 mb-2"><i class="bi bi-clock me-1"></i>Time (UTC)</label>' +
+                                    '<div class="d-flex gap-2 align-items-center">' +
+                                        '<select class="form-select" id="' + p.id + '-hour" style="width:auto" onchange="updateCronPreview(\'' + p.id + '\')">' + buildHourOptions(cronParsed.hour) + '</select>' +
+                                        '<span style="font-size:1.2rem;font-weight:700;color:var(--text-muted)">:</span>' +
+                                        '<select class="form-select" id="' + p.id + '-minute" style="width:auto" onchange="updateCronPreview(\'' + p.id + '\')">' + buildMinuteOptions(cronParsed.minute) + '</select>' +
+                                        '<span style="font-size:0.82rem;color:var(--text-muted);margin-left:4px">UTC</span>' +
+                                    '</div>' +
+                                '</div>' +
+                                '<div class="schedule-preview" id="' + p.id + '-cron-preview">' +
+                                    '<div class="d-flex align-items-center justify-content-between flex-wrap gap-2">' +
+                                        '<span><i class="bi bi-info-circle me-1"></i><span id="' + p.id + '-cron-desc">' + describeCron(p.schedule_cron) + '</span></span>' +
+                                        '<code id="' + p.id + '-cron-value">' + p.schedule_cron + '</code>' +
+                                    '</div>' +
+                                '</div>' +
                             '</div>' +
                         '</div>' +
                     '</div>' +
                     '<div class="col-12">' +
                         '<div class="card">' +
-                            '<div class="card-header py-2"><h6 class="mb-0"><i class="bi bi-hash me-1"></i> Hashtags</h6></div>' +
+                            '<div class="card-header d-flex justify-content-between align-items-center">' +
+                                '<h6 class="mb-0"><i class="bi bi-rss me-2" style="color:var(--accent-amber)"></i>RSS Feeds</h6>' +
+                                '<span class="badge bg-secondary">' + (p.rss_feeds || []).length + ' feeds</span>' +
+                            '</div>' +
                             '<div class="card-body">' +
-                                '<input type="text" class="form-control" id="' + p.id + '-hashtags" value="' + hashtags + '">' +
-                                '<small class="text-muted">Comma-separated hashtags used in generated posts</small>' +
+                                '<textarea class="form-control" id="' + p.id + '-feeds" rows="6" style="font-family:monospace;font-size:0.82rem;line-height:1.8" placeholder="https://example.com/feed.xml">' + feeds + '</textarea>' +
+                                '<div style="font-size:0.78rem;color:var(--text-muted);margin-top:6px"><i class="bi bi-info-circle me-1"></i>One URL per line. Articles are fetched and scored from these feeds.</div>' +
                             '</div>' +
                         '</div>' +
                     '</div>' +
                     '<div class="col-12">' +
-                        '<button type="submit" class="btn btn-' + colorName + ' btn-run w-100">' +
-                            '<i class="bi bi-check-lg me-1"></i> Save Changes' +
-                        '</button>' +
+                        '<button type="submit" class="btn btn-' + color + ' btn-run w-100"><i class="bi bi-check-lg me-1"></i> Save Settings</button>' +
                     '</div>' +
                 '</div>' +
             '</form>' +
@@ -93,8 +128,70 @@ async function loadSettings() {
     }).join('');
 }
 
+function buildDayButtons(pid, activeDays) {
+    var days = [{val:'0',label:'Su'},{val:'1',label:'Mo'},{val:'2',label:'Tu'},{val:'3',label:'We'},{val:'4',label:'Th'},{val:'5',label:'Fr'},{val:'6',label:'Sa'}];
+    return days.map(function(d) {
+        var isActive = activeDays.indexOf(d.val) !== -1;
+        return '<div class="day-btn ' + (isActive ? 'active' : '') + '" data-day="' + d.val + '" onclick="toggleDay(\'' + pid + '\', this)">' + d.label + '</div>';
+    }).join('');
+}
+
+function buildHourOptions(selected) {
+    var html = '';
+    for (var h = 0; h < 24; h++) {
+        var ampm = h >= 12 ? 'PM' : 'AM';
+        var h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+        html += '<option value="' + h + '"' + (String(h) === String(selected) ? ' selected' : '') + '>' + h12 + ' ' + ampm + '</option>';
+    }
+    return html;
+}
+
+function buildMinuteOptions(selected) {
+    var html = '';
+    var opts = [0,5,10,15,20,25,30,35,40,45,50,55];
+    for (var i = 0; i < opts.length; i++) {
+        var m = opts[i];
+        html += '<option value="' + m + '"' + (String(m) === String(selected) ? ' selected' : '') + '>:' + (m < 10 ? '0' : '') + m + '</option>';
+    }
+    return html;
+}
+
+function setFreq(pid, freq, el) {
+    var options = el.parentElement.querySelectorAll('.schedule-option');
+    for (var i = 0; i < options.length; i++) options[i].classList.remove('active');
+    el.classList.add('active');
+    document.getElementById(pid + '-days-wrap').style.display = freq === 'custom' ? 'block' : 'none';
+    updateCronPreview(pid);
+}
+
+function toggleDay(pid, el) {
+    el.classList.toggle('active');
+    updateCronPreview(pid);
+}
+
+function getPickerValues(pid) {
+    var freqEl = document.querySelector('#' + pid + '-freq .schedule-option.active');
+    var frequency = freqEl ? freqEl.getAttribute('data-freq') : 'daily';
+    var hour = document.getElementById(pid + '-hour').value;
+    var minute = document.getElementById(pid + '-minute').value;
+    var dayEls = document.querySelectorAll('#' + pid + '-days .day-btn.active');
+    var days = [];
+    for (var i = 0; i < dayEls.length; i++) days.push(dayEls[i].getAttribute('data-day'));
+    return { frequency: frequency, hour: hour, minute: minute, days: days };
+}
+
+function updateCronPreview(pid) {
+    var vals = getPickerValues(pid);
+    var cron = buildCron(vals.frequency, vals.hour, vals.minute, vals.days);
+    document.getElementById(pid + '-cron-desc').textContent = describeCron(cron);
+    document.getElementById(pid + '-cron-value').textContent = cron;
+}
+
 async function saveProject(e, projectId) {
     e.preventDefault();
+    var vals = getPickerValues(projectId);
+    var cron = buildCron(vals.frequency, vals.hour, vals.minute, vals.days);
+
     var feedsText = document.getElementById(projectId + '-feeds').value;
     var feeds = feedsText.split('\n').map(function(f) { return f.trim(); }).filter(function(f) { return f; });
     var hashtagsText = document.getElementById(projectId + '-hashtags').value;
@@ -102,7 +199,7 @@ async function saveProject(e, projectId) {
 
     var update = {
         display_name: document.getElementById(projectId + '-name').value,
-        schedule_cron: document.getElementById(projectId + '-cron').value,
+        schedule_cron: cron,
         twitter_enabled: document.getElementById(projectId + '-twitter').checked,
         is_active: document.getElementById(projectId + '-active').checked,
         rss_feeds: feeds,
@@ -115,9 +212,9 @@ async function saveProject(e, projectId) {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(update),
         });
-        showToast('Settings saved!', 'success');
-    } catch (e) {
-        showToast('Error: ' + e.message, 'danger');
+        showToast('Settings saved successfully!', 'success');
+    } catch (err) {
+        showToast('Error: ' + err.message, 'danger');
     }
 }
 

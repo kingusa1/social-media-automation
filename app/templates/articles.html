@@ -5,10 +5,10 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <div>
-        <h3 class="mb-0"><i class="bi bi-newspaper me-2"></i>Articles</h3>
-        <p class="text-muted mb-0 small">Fetched and scored articles from RSS feeds</p>
+        <h3 class="mb-1" style="font-weight:700;letter-spacing:-0.3px"><i class="bi bi-newspaper me-2" style="color:var(--accent-green)"></i>Articles</h3>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin:0">Fetched and scored articles from RSS feeds</p>
     </div>
-    <select class="form-select form-select-sm w-auto" id="filterProject" style="border-radius:8px">
+    <select class="form-select form-select-sm" id="filterProject" style="width:auto;border-radius:var(--radius-sm)">
         <option value="">All Projects</option>
         <option value="infiniteo">Infiniteo</option>
         <option value="yourops">YourOps</option>
@@ -31,7 +31,7 @@
                 </tr>
             </thead>
             <tbody id="articlesTable">
-                <tr><td colspan="6" class="page-loader"><div class="spinner-border spinner-border-sm"></div>&nbsp;Loading...</td></tr>
+                <tr><td colspan="6" class="page-loader"><div class="spinner-border spinner-border-sm"></div>Loading...</td></tr>
             </tbody>
         </table>
     </div>
@@ -48,17 +48,16 @@ async function loadArticles() {
     var data = await fetchAPI('/api/articles?' + params);
     var tbody = document.getElementById('articlesTable');
 
-    // Stats
     var total = data.articles.length;
     var selected = data.articles.filter(function(a) { return a.was_selected; }).length;
     var avgScore = total > 0 ? Math.round(data.articles.reduce(function(s,a) { return s + a.relevance_score; }, 0) / total) : 0;
     document.getElementById('articleStats').innerHTML =
         '<div class="col-4"><div class="stat-card"><div class="stat-value text-primary">' + data.total + '</div><div class="stat-label">Total</div></div></div>' +
-        '<div class="col-4"><div class="stat-card"><div class="stat-value text-warning">' + selected + '</div><div class="stat-label">Selected</div></div></div>' +
-        '<div class="col-4"><div class="stat-card"><div class="stat-value text-info">' + avgScore + '</div><div class="stat-label">Avg Score</div></div></div>';
+        '<div class="col-4"><div class="stat-card"><div class="stat-value" style="color:var(--accent-amber)">' + selected + '</div><div class="stat-label">Selected</div></div></div>' +
+        '<div class="col-4"><div class="stat-card"><div class="stat-value" style="color:var(--accent-cyan)">' + avgScore + '</div><div class="stat-label">Avg Score</div></div></div>';
 
     if (data.articles.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><i class="bi bi-newspaper d-block"></i><h5>No articles fetched yet</h5><p>Run the pipeline to fetch articles from RSS feeds</p></div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><i class="bi bi-newspaper"></i><h5>No articles fetched yet</h5><p>Run the pipeline to fetch articles from RSS feeds</p></div></td></tr>';
         return;
     }
 
@@ -73,9 +72,9 @@ async function loadArticles() {
             '<td><a href="' + a.url + '" target="_blank" class="text-decoration-none" title="' + title.replace(/"/g, '&quot;') + '">' + shortTitle + '</a></td>' +
             '<td><span class="badge bg-' + scoreColor + '">' + a.relevance_score + '</span></td>' +
             '<td class="d-none d-md-table-cell"><span class="badge bg-' + (a.project_id === 'infiniteo' ? 'primary' : 'success') + '">' + a.project_id + '</span></td>' +
-            '<td class="d-none d-md-table-cell"><small class="text-muted">' + sourceDomain + '</small></td>' +
-            '<td>' + (a.was_selected ? '<i class="bi bi-star-fill text-warning"></i>' : '<span class="text-muted">-</span>') + '</td>' +
-            '<td class="d-none d-md-table-cell"><small class="text-muted">' + (a.created_at ? formatTime(a.created_at) : '-') + '</small></td>' +
+            '<td class="d-none d-md-table-cell" style="color:var(--text-muted);font-size:0.82rem">' + sourceDomain + '</td>' +
+            '<td>' + (a.was_selected ? '<i class="bi bi-star-fill" style="color:var(--accent-amber)"></i>' : '<span style="color:var(--text-muted)">-</span>') + '</td>' +
+            '<td class="d-none d-md-table-cell" style="color:var(--text-muted);font-size:0.82rem">' + (a.created_at ? formatTime(a.created_at) : '-') + '</td>' +
         '</tr>';
     }).join('');
 }

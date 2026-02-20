@@ -9,16 +9,16 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <div>
-        <h3 class="mb-0"><i class="bi bi-bar-chart-fill me-2"></i>Metrics</h3>
-        <p class="text-muted mb-0 small">Pipeline performance analytics</p>
+        <h3 class="mb-1" style="font-weight:700;letter-spacing:-0.3px"><i class="bi bi-bar-chart-fill me-2" style="color:var(--accent-purple)"></i>Metrics</h3>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin:0">Pipeline performance analytics</p>
     </div>
     <div class="d-flex gap-2">
-        <select class="form-select form-select-sm w-auto" id="filterProject" style="border-radius:8px">
+        <select class="form-select form-select-sm" id="filterProject" style="width:auto;border-radius:var(--radius-sm)">
             <option value="">All Projects</option>
             <option value="infiniteo">Infiniteo</option>
             <option value="yourops">YourOps</option>
         </select>
-        <select class="form-select form-select-sm w-auto" id="filterDays" style="border-radius:8px">
+        <select class="form-select form-select-sm" id="filterDays" style="width:auto;border-radius:var(--radius-sm)">
             <option value="7">7 days</option>
             <option value="30" selected>30 days</option>
             <option value="90">90 days</option>
@@ -26,7 +26,6 @@
     </div>
 </div>
 
-<!-- Summary Cards -->
 <div class="row g-2 mb-4">
     <div class="col-6 col-md-3">
         <div class="stat-card">
@@ -36,39 +35,38 @@
     </div>
     <div class="col-6 col-md-3">
         <div class="stat-card">
-            <div class="stat-value text-success" id="successRate">-</div>
+            <div class="stat-value" id="successRate" style="color:var(--accent-green)">-</div>
             <div class="stat-label">Success Rate</div>
         </div>
     </div>
     <div class="col-6 col-md-3">
         <div class="stat-card">
-            <div class="stat-value text-warning" id="fallbackRate">-</div>
+            <div class="stat-value" id="fallbackRate" style="color:var(--accent-amber)">-</div>
             <div class="stat-label">Fallbacks</div>
         </div>
     </div>
     <div class="col-6 col-md-3">
         <div class="stat-card">
-            <div class="stat-value text-info" id="avgArticles">-</div>
+            <div class="stat-value" id="avgArticles" style="color:var(--accent-cyan)">-</div>
             <div class="stat-label">Avg Articles</div>
         </div>
     </div>
 </div>
 
-<!-- Charts -->
 <div class="row g-3">
     <div class="col-12 col-md-6">
         <div class="card">
-            <div class="card-header py-2"><h6 class="mb-0"><i class="bi bi-pie-chart me-2"></i>Status Distribution</h6></div>
-            <div class="card-body p-2">
-                <canvas id="statusChart" height="200"></canvas>
+            <div class="card-header"><h6 class="mb-0"><i class="bi bi-pie-chart me-2" style="color:var(--accent-blue)"></i>Status Distribution</h6></div>
+            <div class="card-body" style="padding:16px">
+                <canvas id="statusChart" height="220"></canvas>
             </div>
         </div>
     </div>
     <div class="col-12 col-md-6">
         <div class="card">
-            <div class="card-header py-2"><h6 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Top Sources</h6></div>
-            <div class="card-body p-2">
-                <canvas id="sourcesChart" height="200"></canvas>
+            <div class="card-header"><h6 class="mb-0"><i class="bi bi-bar-chart me-2" style="color:var(--accent-green)"></i>Top Sources</h6></div>
+            <div class="card-body" style="padding:16px">
+                <canvas id="sourcesChart" height="220"></canvas>
             </div>
         </div>
     </div>
@@ -92,7 +90,6 @@ async function loadMetrics() {
     document.getElementById('fallbackRate').textContent = data.fallback_count;
     document.getElementById('avgArticles').textContent = data.avg_articles_per_run;
 
-    // Status chart
     if (statusChart) statusChart.destroy();
     statusChart = new Chart(document.getElementById('statusChart'), {
         type: 'doughnut',
@@ -100,18 +97,23 @@ async function loadMetrics() {
             labels: ['Success', 'Failed', 'Partial'],
             datasets: [{
                 data: [data.successful_runs, data.failed_runs, data.partial_failures],
-                backgroundColor: ['#198754', '#dc3545', '#ffc107'],
+                backgroundColor: ['#10b981', '#ef4444', '#f59e0b'],
                 borderWidth: 0,
+                borderRadius: 4,
             }]
         },
         options: {
             responsive: true,
-            cutout: '60%',
-            plugins: { legend: { position: 'bottom', labels: { color: '#8b949e', padding: 15 } } }
+            cutout: '65%',
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { color: '#8b949e', padding: 16, font: { size: 12 } }
+                }
+            }
         }
     });
 
-    // Sources chart
     if (sourcesChart) sourcesChart.destroy();
     var sources = data.top_sources || [];
     sourcesChart = new Chart(document.getElementById('sourcesChart'), {
@@ -123,8 +125,9 @@ async function loadMetrics() {
             datasets: [{
                 label: 'Selected Articles',
                 data: sources.map(function(s) { return s.count; }),
-                backgroundColor: '#0d6efd',
-                borderRadius: 4,
+                backgroundColor: '#3b82f6',
+                borderRadius: 6,
+                borderSkipped: false,
             }]
         },
         options: {
@@ -132,7 +135,7 @@ async function loadMetrics() {
             indexAxis: 'y',
             plugins: { legend: { display: false } },
             scales: {
-                x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#8b949e' } },
+                x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6e7681' } },
                 y: { grid: { display: false }, ticks: { color: '#8b949e', font: { size: 11 } } }
             }
         }
