@@ -30,17 +30,21 @@ router = APIRouter()
 @router.get("/overview")
 def get_overview(db: Session = Depends(get_db)):
     """Get dashboard overview for all projects with connection status."""
-    # Auto-cleanup stuck runs (running > 10 min = timed out)
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
-    db.query(PipelineRun).filter(
-        PipelineRun.status == "running",
-        PipelineRun.started_at < cutoff,
-    ).update({
-        PipelineRun.status: "failed",
-        PipelineRun.error_message: "Timed out",
-        PipelineRun.completed_at: datetime.now(timezone.utc),
-    })
-    db.commit()
+    try:
+        # Auto-cleanup stuck runs (running > 10 min = timed out)
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+        db.query(PipelineRun).filter(
+            PipelineRun.status == "running",
+            PipelineRun.started_at < cutoff,
+        ).update({
+            PipelineRun.status: "failed",
+            PipelineRun.error_message: "Timed out",
+            PipelineRun.completed_at: datetime.now(timezone.utc),
+        })
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Cleanup stuck runs failed: {e}")
+        db.rollback()
 
     projects = db.query(Project).all()
     project_data = []
@@ -52,7 +56,10 @@ def get_overview(db: Session = Depends(get_db)):
             .order_by(desc(PipelineRun.started_at))
             .first()
         )
-        next_run = get_next_run_time(p.id)
+        try:
+            next_run = get_next_run_time(p.id)
+        except Exception:
+            next_run = None
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
         today_posts = (
             db.query(GeneratedPost)
