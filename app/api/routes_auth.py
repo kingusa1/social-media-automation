@@ -12,28 +12,31 @@ router = APIRouter()
 
 
 @router.get("/linkedin/start")
-def linkedin_auth_start(project_id: str, account_type: str = "personal"):
-    """Redirect to LinkedIn OAuth2 authorization page."""
+def linkedin_auth_start(project_id: str):
+    """Redirect to LinkedIn OAuth2 authorization page.
+
+    Single connection handles both personal and organization profiles.
+    """
     settings = get_settings()
     if not settings.LINKEDIN_CLIENT_ID or not settings.LINKEDIN_CLIENT_SECRET:
-        msg = quote("LinkedIn not configured. Add LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET in Vercel env vars. Create an app at linkedin.com/developers/apps")
+        msg = quote("LinkedIn not configured. Add LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET in Vercel env vars.")
         return RedirectResponse(url=f"/profiles?error={msg}")
-    auth_url = get_authorization_url(project_id, account_type)
+    auth_url = get_authorization_url(project_id)
     return RedirectResponse(url=auth_url)
 
 
 @router.get("/linkedin/callback")
 def linkedin_auth_callback(code: str, state: str = "", db: Session = Depends(get_db)):
-    """Handle LinkedIn OAuth2 callback - exchange code for tokens."""
-    # Parse state to get project_id and account_type
-    parts = state.split("|")
-    project_id = parts[0] if parts else ""
-    account_type = parts[1] if len(parts) > 1 else "personal"
+    """Handle LinkedIn OAuth2 callback - exchange code for tokens.
+
+    Auto-detects personal user ID and organization admin access.
+    """
+    project_id = state.split("|")[0] if state else ""
 
     if not project_id:
         return RedirectResponse(url="/profiles?error=invalid_state")
 
-    result = exchange_code_for_token(code, project_id, account_type, db)
+    result = exchange_code_for_token(code, project_id, db)
 
     if result.get("success"):
         return RedirectResponse(url=f"/profiles?success=linkedin_connected&project={project_id}")

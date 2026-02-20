@@ -1,5 +1,6 @@
 """LinkedIn OAuth2 authorization flow - URL generation, code exchange, token refresh."""
 import logging
+import os
 import urllib.parse
 from datetime import datetime, timezone, timedelta
 import requests
@@ -12,17 +13,22 @@ logger = logging.getLogger(__name__)
 LINKEDIN_AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization"
 LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken"
 LINKEDIN_PROFILE_URL = "https://api.linkedin.com/v2/userinfo"
+LINKEDIN_ORG_URL = "https://api.linkedin.com/rest/organizationAcls"
 
 
-def get_authorization_url(project_id: str, account_type: str) -> str:
-    """Generate LinkedIn OAuth2 authorization URL."""
+def get_authorization_url(project_id: str) -> str:
+    """Generate LinkedIn OAuth2 authorization URL with all scopes."""
     settings = get_settings()
 
-    scopes = "openid profile email w_member_social"
-    if account_type == "organization":
-        scopes += " w_organization_social r_organization_social"
+    # Request ALL scopes so one connection handles personal + organization
+    scopes = (
+        "openid profile email "
+        "w_member_social "
+        "w_organization_social r_organization_social "
+        "rw_organization_admin r_organization_admin"
+    )
 
-    state = f"{project_id}|{account_type}"
+    state = project_id  # Just project_id, we handle both account types
 
     params = {
         "response_type": "code",
@@ -35,8 +41,8 @@ def get_authorization_url(project_id: str, account_type: str) -> str:
     return f"{LINKEDIN_AUTH_URL}?{urllib.parse.urlencode(params)}"
 
 
-def exchange_code_for_token(code: str, project_id: str, account_type: str, db: Session) -> dict:
-    """Exchange authorization code for access and refresh tokens."""
+def exchange_code_for_token(code: str, project_id: str, db: Session) -> dict:
+    """Exchange authorization code for tokens. Auto-detects personal + org profiles."""
     settings = get_settings()
 
     data = {
@@ -57,38 +63,63 @@ def exchange_code_for_token(code: str, project_id: str, account_type: str, db: S
         expires_in = token_data.get("expires_in", 5184000)  # Default 60 days
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
-        # Get user profile to get the person ID
-        user_id = ""
-        if account_type == "personal":
-            user_id = _get_user_id(access_token)
+        # --- Auto-detect personal user ID ---
+        user_id = _get_user_id(access_token)
 
-        # Update profile in DB
-        profile = (
+        # --- Update personal profile ---
+        personal_profile = (
             db.query(Profile)
             .filter(
                 Profile.project_id == project_id,
                 Profile.platform == "linkedin",
-                Profile.account_type == account_type,
+                Profile.account_type == "personal",
             )
             .first()
         )
-
-        if profile:
-            profile.access_token = access_token
-            profile.refresh_token = refresh_token
-            profile.token_expires_at = expires_at
+        if personal_profile:
+            personal_profile.access_token = access_token
+            personal_profile.refresh_token = refresh_token
+            personal_profile.token_expires_at = expires_at
             if user_id:
-                profile.platform_user_id = user_id
-            profile.is_active = True
-            db.commit()
+                personal_profile.platform_user_id = user_id
+            personal_profile.is_active = bool(user_id)
 
-        # If on Vercel, save tokens as env vars so they persist across deploys
-        if settings.is_vercel and settings.VERCEL_TOKEN and settings.VERCEL_PROJECT_ID:
-            _update_vercel_env(project_id, account_type, access_token, refresh_token, user_id)
+        # --- Auto-detect organizations ---
+        org_ids = _get_admin_organizations(access_token)
+
+        org_profile = (
+            db.query(Profile)
+            .filter(
+                Profile.project_id == project_id,
+                Profile.platform == "linkedin",
+                Profile.account_type == "organization",
+            )
+            .first()
+        )
+        if org_profile and org_ids:
+            org_profile.access_token = access_token
+            org_profile.refresh_token = refresh_token
+            org_profile.token_expires_at = expires_at
+            org_profile.platform_user_id = org_ids[0]  # Use first org
+            org_profile.is_active = True
+        elif org_profile and not org_ids:
+            # No orgs found - still save token, mark inactive
+            org_profile.access_token = access_token
+            org_profile.refresh_token = refresh_token
+            org_profile.token_expires_at = expires_at
+            org_profile.is_active = False
+
+        db.commit()
+
+        # Save tokens as Vercel env vars for persistence across cold starts
+        if settings.is_vercel:
+            _save_tokens_to_env(project_id, access_token, refresh_token,
+                                user_id, org_ids[0] if org_ids else "")
 
         return {
             "success": True,
             "user_id": user_id,
+            "org_ids": org_ids,
             "expires_at": expires_at.isoformat(),
         }
 
@@ -144,6 +175,57 @@ def ensure_valid_token(profile: Profile, db: Session) -> bool:
     return True
 
 
+def load_tokens_from_env(project_id: str, db: Session):
+    """Load LinkedIn tokens from environment variables into DB profiles.
+
+    Called during seed/startup to restore tokens after Vercel cold starts.
+    """
+    prefix = f"LINKEDIN_{project_id.upper()}"
+    access_token = os.environ.get(f"{prefix}_ACCESS_TOKEN", "")
+    refresh_token = os.environ.get(f"{prefix}_REFRESH_TOKEN", "")
+    user_id = os.environ.get(f"{prefix}_USER_ID", "")
+    org_id = os.environ.get(f"{prefix}_ORG_ID", "")
+
+    if not access_token:
+        return
+
+    logger.info(f"Loading LinkedIn tokens from env vars for {project_id}")
+
+    # Update personal profile
+    personal = (
+        db.query(Profile)
+        .filter(
+            Profile.project_id == project_id,
+            Profile.platform == "linkedin",
+            Profile.account_type == "personal",
+        )
+        .first()
+    )
+    if personal and user_id:
+        personal.access_token = access_token
+        personal.refresh_token = refresh_token
+        personal.platform_user_id = user_id
+        personal.is_active = True
+
+    # Update org profile
+    org = (
+        db.query(Profile)
+        .filter(
+            Profile.project_id == project_id,
+            Profile.platform == "linkedin",
+            Profile.account_type == "organization",
+        )
+        .first()
+    )
+    if org and org_id:
+        org.access_token = access_token
+        org.refresh_token = refresh_token
+        org.platform_user_id = org_id
+        org.is_active = True
+
+    db.commit()
+
+
 def _get_user_id(access_token: str) -> str:
     """Get the LinkedIn user's person ID using the userinfo endpoint."""
     try:
@@ -157,15 +239,51 @@ def _get_user_id(access_token: str) -> str:
         return ""
 
 
-def _update_vercel_env(project_id: str, account_type: str, access_token: str, refresh_token: str, user_id: str):
-    """Update Vercel environment variables with LinkedIn tokens so they persist across deploys."""
-    settings = get_settings()
-    prefix = f"LINKEDIN_{project_id.upper()}_{account_type.upper()}"
+def _get_admin_organizations(access_token: str) -> list[str]:
+    """Get organization IDs where the user is an admin."""
+    try:
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "LinkedIn-Version": "202601",
+            "X-Restli-Protocol-Version": "2.0.0",
+        }
+        params = {"q": "roleAssignee", "role": "ADMINISTRATOR", "count": 10}
+        resp = requests.get(LINKEDIN_ORG_URL, headers=headers, params=params, timeout=15)
 
+        if resp.status_code == 200:
+            data = resp.json()
+            org_ids = []
+            for elem in data.get("elements", []):
+                org_urn = elem.get("organization", "")
+                # Extract org ID from URN like "urn:li:organization:12345"
+                if org_urn:
+                    org_id = org_urn.split(":")[-1]
+                    org_ids.append(org_id)
+            logger.info(f"Found {len(org_ids)} admin organizations")
+            return org_ids
+        else:
+            logger.warning(f"Org lookup returned {resp.status_code}: {resp.text[:200]}")
+            return []
+    except Exception as e:
+        logger.warning(f"Could not fetch organizations: {e}")
+        return []
+
+
+def _save_tokens_to_env(project_id: str, access_token: str, refresh_token: str,
+                         user_id: str, org_id: str):
+    """Save tokens as Vercel env vars via API for persistence across cold starts."""
+    settings = get_settings()
+
+    if not settings.VERCEL_TOKEN or not settings.VERCEL_PROJECT_ID:
+        logger.info("VERCEL_TOKEN/VERCEL_PROJECT_ID not set - tokens saved to DB only")
+        return
+
+    prefix = f"LINKEDIN_{project_id.upper()}"
     env_vars = {
         f"{prefix}_ACCESS_TOKEN": access_token,
         f"{prefix}_REFRESH_TOKEN": refresh_token,
         f"{prefix}_USER_ID": user_id,
+        f"{prefix}_ORG_ID": org_id,
     }
 
     headers = {
@@ -179,12 +297,10 @@ def _update_vercel_env(project_id: str, account_type: str, access_token: str, re
         if not value:
             continue
         try:
-            # Check if env var already exists
             resp = requests.get(f"{api_base}?key={key}", headers=headers, timeout=15)
             existing = resp.json().get("envs", [])
 
             if existing:
-                # Update existing
                 env_id = existing[0]["id"]
                 requests.patch(
                     f"{api_base}/{env_id}",
@@ -192,9 +308,7 @@ def _update_vercel_env(project_id: str, account_type: str, access_token: str, re
                     json={"value": value},
                     timeout=15,
                 )
-                logger.info(f"Updated Vercel env var: {key}")
             else:
-                # Create new
                 requests.post(
                     api_base,
                     headers=headers,
@@ -206,6 +320,6 @@ def _update_vercel_env(project_id: str, account_type: str, access_token: str, re
                     },
                     timeout=15,
                 )
-                logger.info(f"Created Vercel env var: {key}")
+            logger.info(f"Saved Vercel env var: {key}")
         except Exception as e:
-            logger.error(f"Failed to update Vercel env {key}: {e}")
+            logger.error(f"Failed to save Vercel env {key}: {e}")

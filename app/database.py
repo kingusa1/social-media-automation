@@ -35,6 +35,7 @@ def init_db():
     from app.models import Project, Profile  # noqa: avoid circular import
     Base.metadata.create_all(bind=engine)
     seed_projects()
+    _restore_linkedin_tokens()
 
 
 def seed_projects():
@@ -87,5 +88,21 @@ def seed_projects():
     except Exception as e:
         db.rollback()
         logger.warning(f"Error seeding projects: {e}")
+    finally:
+        db.close()
+
+
+def _restore_linkedin_tokens():
+    """Restore LinkedIn tokens from env vars after Vercel cold starts."""
+    from app.models import Project
+    from app.publishers.linkedin_auth import load_tokens_from_env
+
+    db = SessionLocal()
+    try:
+        projects = db.query(Project).filter(Project.is_active == True).all()
+        for project in projects:
+            load_tokens_from_env(project.id, db)
+    except Exception as e:
+        logger.warning(f"Error restoring LinkedIn tokens: {e}")
     finally:
         db.close()

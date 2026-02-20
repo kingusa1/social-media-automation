@@ -482,6 +482,31 @@ def list_scheduler_jobs():
     return get_all_jobs()
 
 
+@router.get("/internal/export-tokens")
+def export_tokens(secret: str = "", db: Session = Depends(get_db)):
+    """Export LinkedIn tokens for persistence. Protected by CRON_SECRET."""
+    settings = get_settings()
+    if not settings.CRON_SECRET or secret != settings.CRON_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    profiles = db.query(Profile).filter(
+        Profile.platform == "linkedin",
+        Profile.access_token != "",
+    ).all()
+
+    result = {}
+    for p in profiles:
+        prefix = f"LINKEDIN_{p.project_id.upper()}"
+        if p.account_type == "personal" and p.platform_user_id:
+            result[f"{prefix}_ACCESS_TOKEN"] = p.access_token
+            result[f"{prefix}_REFRESH_TOKEN"] = p.refresh_token or ""
+            result[f"{prefix}_USER_ID"] = p.platform_user_id
+        elif p.account_type == "organization" and p.platform_user_id:
+            result[f"{prefix}_ORG_ID"] = p.platform_user_id
+
+    return result
+
+
 @router.post("/scheduler/pause/{project_id}")
 def pause_schedule(project_id: str):
     """Pause a project's schedule."""
