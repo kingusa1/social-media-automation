@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     CRON_SECRET: str = ""
     VERCEL: str = ""  # Set automatically by Vercel to "1"
 
-    # Database  (Supabase PostgreSQL in production, SQLite for local dev)
+    # Database  (Neon PostgreSQL in production, SQLite for local dev)
     DATABASE_URL: str = f"sqlite:///{os.path.join(_project_root, 'automation.db')}"
 
     # Pollinations AI

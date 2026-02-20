@@ -14,7 +14,7 @@ engine_kwargs = {"echo": False}
 if settings.DATABASE_URL.startswith("sqlite"):
     engine_kwargs["connect_args"] = {"check_same_thread": False}
 elif settings.DATABASE_URL.startswith("postgresql"):
-    # PostgreSQL pool settings optimised for Vercel serverless
+    # PostgreSQL pool settings for Neon/Vercel serverless
     engine_kwargs["pool_size"] = 3
     engine_kwargs["max_overflow"] = 5
     engine_kwargs["pool_recycle"] = 300  # recycle connections every 5 min
@@ -42,7 +42,7 @@ def init_db():
     Base.metadata.create_all(bind=engine)
     seed_projects()
     # Only restore LinkedIn tokens from env vars when using SQLite
-    # (PostgreSQL via Supabase persists tokens across cold starts)
+    # (PostgreSQL via Neon persists tokens across cold starts)
     if not settings.is_postgres:
         _restore_linkedin_tokens()
 
