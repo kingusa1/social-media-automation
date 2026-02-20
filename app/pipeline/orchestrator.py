@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Project, Article, PipelineRun, GeneratedPost, PublishResult, Profile
 from app.pipeline.rss_fetcher import fetch_feeds
-from app.pipeline.url_resolver import resolve_urls, extract_source_from_url
+from app.pipeline.url_resolver import resolve_urls
 from app.pipeline.deduplicator import deduplicate
 from app.pipeline.scorer import score_articles, select_best
 from app.pipeline.content_extractor import extract_article_content
@@ -103,12 +103,8 @@ def run_pipeline(project_id: str, trigger_type: str, db: Session) -> PipelineRun
                 db.commit()
                 return pipeline_run
 
-        # --- Step 4: Resolve Google News URLs ---
-        try:
-            raw_articles = resolve_urls(raw_articles)
-            log_step("url_resolve", "success", "URLs resolved")
-        except Exception as e:
-            log_step("url_resolve", "warning", f"URL resolution error (continuing): {e}")
+        # --- Step 4: Resolve Google News URLs (deferred to after selection for speed) ---
+        log_step("url_resolve", "success", "URL resolution deferred to selected article only (speed optimization)")
 
         # --- Step 5: Deduplicate ---
         try:
@@ -146,6 +142,15 @@ def run_pipeline(project_id: str, trigger_type: str, db: Session) -> PipelineRun
         article_summary = best_article.get("summary", "")
         article_score = best_article.get("relevance_score", 0)
         log_step("selection", "success", f"Selected: '{article_title[:80]}' (score: {article_score})")
+
+        # --- Step 4b: Resolve URL only for the selected article ---
+        try:
+            resolved = resolve_urls([best_article])
+            if resolved and resolved[0].get("url") != article_url:
+                article_url = resolved[0]["url"]
+                log_step("url_resolve", "success", f"Resolved URL to: {article_url[:80]}")
+        except Exception as e:
+            log_step("url_resolve", "warning", f"URL resolution skipped: {e}")
 
         # Mark as selected in DB
         db_article = db.query(Article).filter(

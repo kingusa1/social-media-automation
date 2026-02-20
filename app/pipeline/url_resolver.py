@@ -53,7 +53,7 @@ def _resolve_single_url(url: str) -> str:
             url,
             headers={"User-Agent": BROWSER_USER_AGENT},
             allow_redirects=True,
-            timeout=10,
+            timeout=5,
         )
         final_url = resp.url
 
@@ -66,7 +66,7 @@ def _resolve_single_url(url: str) -> str:
             url,
             headers={"User-Agent": BROWSER_USER_AGENT},
             allow_redirects=True,
-            timeout=10,
+            timeout=5,
             stream=True,
         )
         # Read just the first chunk for meta redirects

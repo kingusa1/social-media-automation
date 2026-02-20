@@ -71,19 +71,18 @@ def extract_article_content(
 
 
 def _fetch_html(url: str) -> Optional[str]:
-    """Fetch article HTML with retry and fallback User-Agent."""
-    for user_agent in [BROWSER_USER_AGENT, FALLBACK_USER_AGENT]:
-        try:
-            resp = requests.get(
-                url,
-                headers={"User-Agent": user_agent},
-                timeout=15,
-                allow_redirects=True,
-            )
-            if resp.status_code < 400 and len(resp.text) > 100:
-                return resp.text
-        except Exception as e:
-            logger.debug(f"Fetch attempt failed for {url}: {e}")
+    """Fetch article HTML - fast single attempt for Vercel."""
+    try:
+        resp = requests.get(
+            url,
+            headers={"User-Agent": BROWSER_USER_AGENT},
+            timeout=8,
+            allow_redirects=True,
+        )
+        if resp.status_code < 400 and len(resp.text) > 100:
+            return resp.text
+    except Exception as e:
+        logger.debug(f"Fetch failed for {url}: {e}")
     return None
 
 

@@ -95,10 +95,11 @@ def _call_ai(
     model: str,
     settings,
 ) -> Optional[str]:
-    """Make the actual API call to Pollinations AI."""
+    """Make the actual API call to Pollinations AI with timeout."""
     client = OpenAI(
         api_key=settings.POLLINATIONS_API_KEY or "dummy",
         base_url=settings.POLLINATIONS_API_BASE,
+        timeout=30.0,
     )
 
     response = client.chat.completions.create(
