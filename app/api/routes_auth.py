@@ -1,5 +1,6 @@
 """LinkedIn OAuth2 callback routes."""
-from fastapi import APIRouter, Depends, Request, HTTPException
+from urllib.parse import quote
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -15,11 +16,8 @@ def linkedin_auth_start(project_id: str, account_type: str = "personal"):
     """Redirect to LinkedIn OAuth2 authorization page."""
     settings = get_settings()
     if not settings.LINKEDIN_CLIENT_ID or not settings.LINKEDIN_CLIENT_SECRET:
-        raise HTTPException(
-            status_code=400,
-            detail="LinkedIn credentials not configured. Set LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET in your .env file. "
-                   "Create a LinkedIn app at https://www.linkedin.com/developers/apps to get these credentials.",
-        )
+        msg = quote("LinkedIn not configured. Add LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET in Vercel env vars. Create an app at linkedin.com/developers/apps")
+        return RedirectResponse(url=f"/profiles?error={msg}")
     auth_url = get_authorization_url(project_id, account_type)
     return RedirectResponse(url=auth_url)
 

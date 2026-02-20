@@ -43,3 +43,5 @@ nul
 
 # Logs
 *.log
+
+.vercel

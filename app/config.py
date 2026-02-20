@@ -25,7 +25,12 @@ class Settings(BaseSettings):
     VERCEL: str = ""  # Set automatically by Vercel to "1"
 
     # Database
-    DATABASE_URL: str = f"sqlite:///{os.path.join(_project_root, 'automation.db')}"
+    # On Vercel the project dir is read-only; default to /tmp for SQLite.
+    DATABASE_URL: str = (
+        "sqlite:////tmp/automation.db"
+        if os.environ.get("VERCEL")
+        else f"sqlite:///{os.path.join(_project_root, 'automation.db')}"
+    )
 
     # Pollinations AI
     POLLINATIONS_API_KEY: str = ""
