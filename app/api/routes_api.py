@@ -1,12 +1,16 @@
 """REST API endpoints for the dashboard (JSON responses)."""
 import json
+import logging
 import threading
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
+from app.config import get_settings
 from app.database import get_db
+
+logger = logging.getLogger(__name__)
 from app.models import Project, Profile, PipelineRun, GeneratedPost, PublishResult, Article
 from app.schemas import (
     ProjectResponse, ProjectUpdate, ProfileResponse, ProfileUpdate,
@@ -189,26 +193,40 @@ def trigger_pipeline(request: ManualTriggerRequest, db: Session = Depends(get_db
     if running:
         raise HTTPException(status_code=409, detail="A pipeline run is already in progress")
 
-    # Run pipeline in background thread
-    from app.database import SessionLocal
+    settings = get_settings()
 
-    def _run():
-        import logging
-        logger = logging.getLogger(__name__)
-        session = SessionLocal()
+    if settings.is_vercel:
+        # Vercel serverless: run synchronously (threads get killed after response)
+        from app.pipeline.orchestrator import run_pipeline
         try:
-            from app.pipeline.orchestrator import run_pipeline
-            result = run_pipeline(request.project_id, trigger_type="manual", db=session)
-            logger.info(f"Manual pipeline for {request.project_id} completed: {result.status}")
+            result = run_pipeline(request.project_id, trigger_type="manual", db=db)
+            return {
+                "message": f"Pipeline completed for {project.display_name}",
+                "project_id": request.project_id,
+                "status": result.status,
+                "articles_fetched": result.articles_fetched,
+            }
         except Exception as e:
-            logger.error(f"Manual pipeline for {request.project_id} failed: {e}", exc_info=True)
-        finally:
-            session.close()
+            raise HTTPException(status_code=500, detail=str(e))
+    else:
+        # Local: run in background thread for non-blocking UX
+        from app.database import SessionLocal
 
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
+        def _run():
+            session = SessionLocal()
+            try:
+                from app.pipeline.orchestrator import run_pipeline
+                result = run_pipeline(request.project_id, trigger_type="manual", db=session)
+                logger.info(f"Manual pipeline for {request.project_id} completed: {result.status}")
+            except Exception as e:
+                logger.error(f"Manual pipeline for {request.project_id} failed: {e}", exc_info=True)
+            finally:
+                session.close()
 
-    return {"message": f"Pipeline triggered for {project.display_name}", "project_id": request.project_id}
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+
+        return {"message": f"Pipeline triggered for {project.display_name}", "project_id": request.project_id}
 
 
 # ========== Generated Posts ==========

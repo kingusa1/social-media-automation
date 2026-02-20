@@ -131,21 +131,18 @@ async function loadDashboard() {
 }
 
 async function triggerPipeline(projectId) {
-    const btn = event.target;
+    const btn = event.target.closest('button');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Running...';
 
     try {
-        await fetchAPI('/api/runs/trigger', {
+        const result = await fetchAPI('/api/runs/trigger', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({project_id: projectId})
         });
-        showToast(`Pipeline triggered for ${projectId}!`, 'success');
-        // Poll for completion
-        setTimeout(loadDashboard, 5000);
-        setTimeout(loadDashboard, 15000);
-        setTimeout(loadDashboard, 30000);
+        showToast(result.message || `Pipeline completed for ${projectId}!`, 'success');
+        loadDashboard();
     } catch (e) {
         showToast(`Error: ${e.message}`, 'danger');
     } finally {
