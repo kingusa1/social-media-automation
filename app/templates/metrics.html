@@ -7,63 +7,58 @@
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <h3><i class="bi bi-graph-up me-2"></i>Metrics</h3>
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h3 class="mb-0"><i class="bi bi-bar-chart-fill me-2"></i>Metrics</h3>
+        <p class="text-muted mb-0 small">Pipeline performance analytics</p>
+    </div>
     <div class="d-flex gap-2">
-        <select class="form-select form-select-sm w-auto" id="filterProject">
-            <option value="">All</option>
+        <select class="form-select form-select-sm w-auto" id="filterProject" style="border-radius:8px">
+            <option value="">All Projects</option>
             <option value="infiniteo">Infiniteo</option>
             <option value="yourops">YourOps</option>
         </select>
-        <select class="form-select form-select-sm w-auto" id="filterDays">
-            <option value="7">7d</option>
-            <option value="30" selected>30d</option>
-            <option value="90">90d</option>
+        <select class="form-select form-select-sm w-auto" id="filterDays" style="border-radius:8px">
+            <option value="7">7 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="90">90 days</option>
         </select>
     </div>
 </div>
 
-<!-- Summary Cards (2x2 on mobile) -->
+<!-- Summary Cards -->
 <div class="row g-2 mb-4">
     <div class="col-6 col-md-3">
-        <div class="card text-center">
-            <div class="card-body py-2">
-                <div class="fs-3 fw-bold text-primary" id="totalRuns">-</div>
-                <small class="text-muted">Runs</small>
-            </div>
+        <div class="stat-card">
+            <div class="stat-value text-primary" id="totalRuns">-</div>
+            <div class="stat-label">Total Runs</div>
         </div>
     </div>
     <div class="col-6 col-md-3">
-        <div class="card text-center">
-            <div class="card-body py-2">
-                <div class="fs-3 fw-bold text-success" id="successRate">-</div>
-                <small class="text-muted">Success</small>
-            </div>
+        <div class="stat-card">
+            <div class="stat-value text-success" id="successRate">-</div>
+            <div class="stat-label">Success Rate</div>
         </div>
     </div>
     <div class="col-6 col-md-3">
-        <div class="card text-center">
-            <div class="card-body py-2">
-                <div class="fs-3 fw-bold text-warning" id="fallbackRate">-</div>
-                <small class="text-muted">Fallbacks</small>
-            </div>
+        <div class="stat-card">
+            <div class="stat-value text-warning" id="fallbackRate">-</div>
+            <div class="stat-label">Fallbacks</div>
         </div>
     </div>
     <div class="col-6 col-md-3">
-        <div class="card text-center">
-            <div class="card-body py-2">
-                <div class="fs-3 fw-bold text-info" id="avgArticles">-</div>
-                <small class="text-muted">Avg Articles</small>
-            </div>
+        <div class="stat-card">
+            <div class="stat-value text-info" id="avgArticles">-</div>
+            <div class="stat-label">Avg Articles</div>
         </div>
     </div>
 </div>
 
-<!-- Charts (stacked on mobile) -->
+<!-- Charts -->
 <div class="row g-3">
     <div class="col-12 col-md-6">
         <div class="card">
-            <div class="card-header py-2"><h6 class="mb-0">Status Distribution</h6></div>
+            <div class="card-header py-2"><h6 class="mb-0"><i class="bi bi-pie-chart me-2"></i>Status Distribution</h6></div>
             <div class="card-body p-2">
                 <canvas id="statusChart" height="200"></canvas>
             </div>
@@ -71,7 +66,7 @@
     </div>
     <div class="col-12 col-md-6">
         <div class="card">
-            <div class="card-header py-2"><h6 class="mb-0">Top Sources</h6></div>
+            <div class="card-header py-2"><h6 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Top Sources</h6></div>
             <div class="card-body p-2">
                 <canvas id="sourcesChart" height="200"></canvas>
             </div>
@@ -82,22 +77,22 @@
 
 {% block extra_scripts %}
 <script>
-let statusChart, sourcesChart;
+var statusChart, sourcesChart;
 
 async function loadMetrics() {
-    const projectId = document.getElementById('filterProject').value;
-    const days = document.getElementById('filterDays').value;
-    const params = new URLSearchParams({days});
+    var projectId = document.getElementById('filterProject').value;
+    var days = document.getElementById('filterDays').value;
+    var params = new URLSearchParams({days: days});
     if (projectId) params.set('project_id', projectId);
 
-    const data = await fetchAPI(`/api/metrics?${params}`);
+    var data = await fetchAPI('/api/metrics?' + params);
 
     document.getElementById('totalRuns').textContent = data.total_runs;
     document.getElementById('successRate').textContent = data.success_rate + '%';
     document.getElementById('fallbackRate').textContent = data.fallback_count;
     document.getElementById('avgArticles').textContent = data.avg_articles_per_run;
 
-    // Status pie chart
+    // Status chart
     if (statusChart) statusChart.destroy();
     statusChart = new Chart(document.getElementById('statusChart'), {
         type: 'doughnut',
@@ -106,30 +101,40 @@ async function loadMetrics() {
             datasets: [{
                 data: [data.successful_runs, data.failed_runs, data.partial_failures],
                 backgroundColor: ['#198754', '#dc3545', '#ffc107'],
+                borderWidth: 0,
             }]
         },
-        options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+        options: {
+            responsive: true,
+            cutout: '60%',
+            plugins: { legend: { position: 'bottom', labels: { color: '#8b949e', padding: 15 } } }
+        }
     });
 
-    // Sources bar chart
+    // Sources chart
     if (sourcesChart) sourcesChart.destroy();
-    const sources = data.top_sources || [];
+    var sources = data.top_sources || [];
     sourcesChart = new Chart(document.getElementById('sourcesChart'), {
         type: 'bar',
         data: {
-            labels: sources.map(s => {
-                try { return new URL(s.source).hostname.replace('www.', ''); } catch { return s.source || 'unknown'; }
+            labels: sources.map(function(s) {
+                try { return new URL(s.source).hostname.replace('www.', ''); } catch(e) { return s.source || 'unknown'; }
             }),
             datasets: [{
-                label: 'Selected',
-                data: sources.map(s => s.count),
+                label: 'Selected Articles',
+                data: sources.map(function(s) { return s.count; }),
                 backgroundColor: '#0d6efd',
+                borderRadius: 4,
             }]
         },
         options: {
             responsive: true,
             indexAxis: 'y',
-            plugins: { legend: { display: false } }
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#8b949e' } },
+                y: { grid: { display: false }, ticks: { color: '#8b949e', font: { size: 11 } } }
+            }
         }
     });
 }

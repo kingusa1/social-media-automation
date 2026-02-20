@@ -3,14 +3,19 @@
 {% block title %}Articles{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h3><i class="bi bi-newspaper me-2"></i>Articles</h3>
-    <select class="form-select form-select-sm w-auto" id="filterProject">
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h3 class="mb-0"><i class="bi bi-newspaper me-2"></i>Articles</h3>
+        <p class="text-muted mb-0 small">Fetched and scored articles from RSS feeds</p>
+    </div>
+    <select class="form-select form-select-sm w-auto" id="filterProject" style="border-radius:8px">
         <option value="">All Projects</option>
         <option value="infiniteo">Infiniteo</option>
         <option value="yourops">YourOps</option>
     </select>
 </div>
+
+<div id="articleStats" class="row g-2 mb-3"></div>
 
 <div class="card">
     <div class="table-responsive-wrapper">
@@ -21,12 +26,12 @@
                     <th>Score</th>
                     <th class="d-none d-md-table-cell">Project</th>
                     <th class="d-none d-md-table-cell">Source</th>
-                    <th>Sel</th>
-                    <th class="d-none d-md-table-cell">Date</th>
+                    <th>Used</th>
+                    <th class="d-none d-md-table-cell">Fetched</th>
                 </tr>
             </thead>
             <tbody id="articlesTable">
-                <tr><td colspan="6" class="text-center text-muted">Loading...</td></tr>
+                <tr><td colspan="6" class="page-loader"><div class="spinner-border spinner-border-sm"></div>&nbsp;Loading...</td></tr>
             </tbody>
         </table>
     </div>
@@ -36,31 +41,42 @@
 {% block extra_scripts %}
 <script>
 async function loadArticles() {
-    const projectId = document.getElementById('filterProject').value;
-    const params = new URLSearchParams({page: 1, per_page: 100});
+    var projectId = document.getElementById('filterProject').value;
+    var params = new URLSearchParams({page: 1, per_page: 100});
     if (projectId) params.set('project_id', projectId);
 
-    const data = await fetchAPI(`/api/articles?${params}`);
-    const tbody = document.getElementById('articlesTable');
+    var data = await fetchAPI('/api/articles?' + params);
+    var tbody = document.getElementById('articlesTable');
+
+    // Stats
+    var total = data.articles.length;
+    var selected = data.articles.filter(function(a) { return a.was_selected; }).length;
+    var avgScore = total > 0 ? Math.round(data.articles.reduce(function(s,a) { return s + a.relevance_score; }, 0) / total) : 0;
+    document.getElementById('articleStats').innerHTML =
+        '<div class="col-4"><div class="stat-card"><div class="stat-value text-primary">' + data.total + '</div><div class="stat-label">Total</div></div></div>' +
+        '<div class="col-4"><div class="stat-card"><div class="stat-value text-warning">' + selected + '</div><div class="stat-label">Selected</div></div></div>' +
+        '<div class="col-4"><div class="stat-card"><div class="stat-value text-info">' + avgScore + '</div><div class="stat-label">Avg Score</div></div></div>';
 
     if (data.articles.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No articles fetched yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><i class="bi bi-newspaper d-block"></i><h5>No articles fetched yet</h5><p>Run the pipeline to fetch articles from RSS feeds</p></div></td></tr>';
         return;
     }
 
-    tbody.innerHTML = data.articles.map(a => {
-        const scoreColor = a.relevance_score > 30 ? 'success' : a.relevance_score > 15 ? 'warning' : 'secondary';
-        let sourceDomain = '-';
-        try { sourceDomain = new URL(a.source_feed).hostname.replace('www.', ''); } catch {}
-        return `
-        <tr>
-            <td><a href="${a.url}" target="_blank" class="text-truncate d-inline-block" style="max-width:200px" title="${a.title}">${(a.title || 'Untitled').substring(0, 50)}${a.title && a.title.length > 50 ? '...' : ''}</a></td>
-            <td><span class="badge bg-${scoreColor}">${a.relevance_score}</span></td>
-            <td class="d-none d-md-table-cell"><span class="badge bg-${a.project_id === 'infiniteo' ? 'primary' : 'success'}">${a.project_id}</span></td>
-            <td class="d-none d-md-table-cell"><small>${sourceDomain}</small></td>
-            <td>${a.was_selected ? '<i class="bi bi-star-fill text-warning"></i>' : ''}</td>
-            <td class="d-none d-md-table-cell"><small>${a.created_at ? formatTime(a.created_at) : '-'}</small></td>
-        </tr>`;
+    tbody.innerHTML = data.articles.map(function(a) {
+        var scoreColor = a.relevance_score > 30 ? 'success' : a.relevance_score > 15 ? 'warning' : 'secondary';
+        var sourceDomain = '-';
+        try { sourceDomain = new URL(a.source_feed).hostname.replace('www.', ''); } catch(e) {}
+        var title = (a.title || 'Untitled');
+        var shortTitle = title.length > 55 ? title.substring(0, 55) + '...' : title;
+
+        return '<tr>' +
+            '<td><a href="' + a.url + '" target="_blank" class="text-decoration-none" title="' + title.replace(/"/g, '&quot;') + '">' + shortTitle + '</a></td>' +
+            '<td><span class="badge bg-' + scoreColor + '">' + a.relevance_score + '</span></td>' +
+            '<td class="d-none d-md-table-cell"><span class="badge bg-' + (a.project_id === 'infiniteo' ? 'primary' : 'success') + '">' + a.project_id + '</span></td>' +
+            '<td class="d-none d-md-table-cell"><small class="text-muted">' + sourceDomain + '</small></td>' +
+            '<td>' + (a.was_selected ? '<i class="bi bi-star-fill text-warning"></i>' : '<span class="text-muted">-</span>') + '</td>' +
+            '<td class="d-none d-md-table-cell"><small class="text-muted">' + (a.created_at ? formatTime(a.created_at) : '-') + '</small></td>' +
+        '</tr>';
     }).join('');
 }
 

@@ -3,69 +3,29 @@
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h3><i class="bi bi-speedometer2 me-2"></i>Dashboard</h3>
-    <span class="badge bg-secondary" id="lastRefresh">Loading...</span>
+{% raw %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h3 class="mb-0"><i class="bi bi-grid-1x2-fill me-2"></i>Dashboard</h3>
+    </div>
+    <span class="badge bg-dark border px-3 py-2" id="lastRefresh" style="font-size:0.8rem">
+        <i class="bi bi-clock me-1"></i>Loading...
+    </span>
 </div>
 
 <!-- Project Cards -->
 <div class="row g-3 mb-4" id="projectCards">
-    <div class="col-12 col-md-6">
-        <div class="card border-primary h-100">
-            <div class="card-header bg-primary bg-opacity-10 d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Infiniteo</h5>
-                <span class="badge bg-secondary" id="status-infiniteo">Loading</span>
-            </div>
-            <div class="card-body">
-                <div class="row text-center mb-3">
-                    <div class="col-6">
-                        <div class="fs-4 fw-bold" id="articles-infiniteo">-</div>
-                        <small class="text-muted">Articles</small>
-                    </div>
-                    <div class="col-6">
-                        <div class="fs-4 fw-bold" id="posts-infiniteo">-</div>
-                        <small class="text-muted">Posts Today</small>
-                    </div>
-                </div>
-                <p class="mb-1 small"><strong>Last Run:</strong> <span id="lastrun-infiniteo">Never</span></p>
-                <p class="mb-3 small"><strong>Next Run:</strong> <span id="nextrun-infiniteo">Not scheduled</span></p>
-                <button class="btn btn-primary w-100 btn-run" onclick="triggerPipeline('infiniteo')">
-                    <i class="bi bi-play-fill me-1"></i> Run Now
-                </button>
-            </div>
-        </div>
-    </div>
-    <div class="col-12 col-md-6">
-        <div class="card border-success h-100">
-            <div class="card-header bg-success bg-opacity-10 d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">YourOps</h5>
-                <span class="badge bg-secondary" id="status-yourops">Loading</span>
-            </div>
-            <div class="card-body">
-                <div class="row text-center mb-3">
-                    <div class="col-6">
-                        <div class="fs-4 fw-bold" id="articles-yourops">-</div>
-                        <small class="text-muted">Articles</small>
-                    </div>
-                    <div class="col-6">
-                        <div class="fs-4 fw-bold" id="posts-yourops">-</div>
-                        <small class="text-muted">Posts Today</small>
-                    </div>
-                </div>
-                <p class="mb-1 small"><strong>Last Run:</strong> <span id="lastrun-yourops">Never</span></p>
-                <p class="mb-3 small"><strong>Next Run:</strong> <span id="nextrun-yourops">Not scheduled</span></p>
-                <button class="btn btn-success w-100 btn-run" onclick="triggerPipeline('yourops')">
-                    <i class="bi bi-play-fill me-1"></i> Run Now
-                </button>
-            </div>
-        </div>
+    <div class="col-12 page-loader">
+        <div class="spinner-border spinner-border-sm" role="status"></div>
+        Loading projects...
     </div>
 </div>
 
-<!-- Recent Runs -->
+<!-- Recent Activity -->
 <div class="card">
-    <div class="card-header">
-        <h6 class="mb-0"><i class="bi bi-clock-history me-2"></i>Recent Runs</h6>
+    <div class="card-header d-flex justify-content-between align-items-center py-2">
+        <h6 class="mb-0"><i class="bi bi-clock-history me-2"></i>Recent Activity</h6>
+        <a href="/executions" class="btn btn-sm btn-outline-secondary">View All</a>
     </div>
     <div class="table-responsive-wrapper">
         <table class="table table-hover mb-0">
@@ -75,15 +35,15 @@
                     <th>Trigger</th>
                     <th>Status</th>
                     <th>Time</th>
-                    <th>Fallback</th>
                 </tr>
             </thead>
             <tbody id="recentRuns">
-                <tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>
+                <tr><td colspan="4" class="text-center text-muted py-3">Loading...</td></tr>
             </tbody>
         </table>
     </div>
 </div>
+{% endraw %}
 {% endblock %}
 
 {% block extra_scripts %}
@@ -91,60 +51,120 @@
 async function loadDashboard() {
     try {
         const data = await fetchAPI('/api/overview');
+        const container = document.getElementById('projectCards');
+        let html = '';
 
-        for (const project of data.projects) {
-            const id = project.id;
-            document.getElementById(`articles-${id}`).textContent = project.total_articles;
-            document.getElementById(`posts-${id}`).textContent = project.today_posts;
+        for (const p of data.projects) {
+            const color = p.id === 'infiniteo' ? '#0d6efd' : '#198754';
+            const colorName = p.id === 'infiniteo' ? 'primary' : 'success';
+            const statusText = p.last_run ? p.last_run.status : 'No runs';
+            const statusBg = p.last_run ? statusColor(p.last_run.status) : 'secondary';
+            const successRate = p.total_runs > 0 ? Math.round(p.success_runs / p.total_runs * 100) : 0;
 
-            if (project.last_run) {
-                const statusBadge = document.getElementById(`status-${id}`);
-                statusBadge.textContent = project.last_run.status;
-                statusBadge.className = `badge bg-${statusColor(project.last_run.status)}`;
-                document.getElementById(`lastrun-${id}`).textContent = formatTime(project.last_run.time);
-            }
+            html += `
+            <div class="col-12 col-lg-6">
+                <div class="project-card">
+                    <div class="project-card-header" style="background:linear-gradient(135deg,${color}22 0%,${color}11 100%);border-bottom:1px solid ${color}33">
+                        <div>
+                            <h5 class="mb-0 fw-bold">${p.display_name}</h5>
+                            <div class="d-flex gap-3 mt-1">
+                                <small class="d-flex align-items-center gap-1">
+                                    <span class="conn-dot ${p.linkedin_connected ? 'on' : 'off'}"></span>
+                                    <span class="${p.linkedin_connected ? 'text-success' : 'text-muted'}" style="font-size:0.78rem">LinkedIn</span>
+                                </small>
+                                <small class="d-flex align-items-center gap-1">
+                                    <span class="conn-dot ${p.twitter_connected ? 'on' : 'off'}"></span>
+                                    <span class="${p.twitter_connected ? 'text-success' : 'text-muted'}" style="font-size:0.78rem">Twitter</span>
+                                </small>
+                            </div>
+                        </div>
+                        <span class="badge bg-${statusBg}">${statusText}</span>
+                    </div>
+                    <div class="project-card-body">
+                        <div class="row g-2 mb-3">
+                            <div class="col-3">
+                                <div class="stat-card">
+                                    <div class="stat-value text-${colorName}">${p.today_posts}</div>
+                                    <div class="stat-label">Today</div>
+                                </div>
+                            </div>
+                            <div class="col-3">
+                                <div class="stat-card">
+                                    <div class="stat-value">${p.total_posts}</div>
+                                    <div class="stat-label">Posts</div>
+                                </div>
+                            </div>
+                            <div class="col-3">
+                                <div class="stat-card">
+                                    <div class="stat-value">${p.total_articles}</div>
+                                    <div class="stat-label">Articles</div>
+                                </div>
+                            </div>
+                            <div class="col-3">
+                                <div class="stat-card">
+                                    <div class="stat-value text-${successRate >= 80 ? 'success' : successRate >= 50 ? 'warning' : 'secondary'}">${p.total_runs > 0 ? successRate + '%' : '-'}</div>
+                                    <div class="stat-label">Success</div>
+                                </div>
+                            </div>
+                        </div>
 
-            document.getElementById(`nextrun-${id}`).textContent =
-                project.next_run ? formatTime(project.next_run) : 'Not scheduled';
+                        <div class="info-row">
+                            <span class="label"><i class="bi bi-clock me-1"></i>Last Run</span>
+                            <span>${p.last_run ? formatTime(p.last_run.time) : '<span class=text-muted>Never</span>'}</span>
+                        </div>
+                        <div class="info-row mb-2">
+                            <span class="label"><i class="bi bi-calendar-event me-1"></i>Next Run</span>
+                            <span>${p.next_run ? formatTime(p.next_run) : '<span class=text-muted>Via Vercel cron</span>'}</span>
+                        </div>
+
+                        ${!p.linkedin_connected && !p.twitter_connected ?
+                            '<div class="alert alert-warning py-2 px-3 mb-0 small"><i class="bi bi-exclamation-triangle me-1"></i>No accounts connected. <a href="/profiles" class="alert-link">Connect now</a></div>' : ''}
+
+                        <button class="btn btn-${colorName} w-100 btn-run mt-2" onclick="triggerPipeline('${p.id}', this)"
+                            ${!p.linkedin_connected && !p.twitter_connected ? 'disabled title="Connect an account first"' : ''}>
+                            <i class="bi bi-play-fill me-1"></i> Run Now
+                        </button>
+                    </div>
+                </div>
+            </div>`;
         }
 
-        // Recent runs table
+        container.innerHTML = html || '<div class="col-12 empty-state"><i class="bi bi-folder2-open d-block"></i><h5>No projects</h5></div>';
+
+        // Recent runs
         const tbody = document.getElementById('recentRuns');
         if (data.recent_runs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No runs yet. Tap "Run Now" to start!</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4"><i class="bi bi-lightning d-block mb-2" style="font-size:1.5rem"></i>No runs yet. Hit "Run Now"!</td></tr>';
         } else {
             tbody.innerHTML = data.recent_runs.map(run => `
                 <tr style="cursor:pointer" onclick="window.location='/executions'">
                     <td><strong>${run.project_id}</strong></td>
-                    <td><span class="badge bg-info">${run.trigger_type}</span></td>
+                    <td><span class="badge bg-dark border">${run.trigger_type}</span></td>
                     <td><span class="badge bg-${statusColor(run.status)}">${run.status}</span></td>
-                    <td>${formatTime(run.started_at)}</td>
-                    <td>${run.used_fallback ? '<i class="bi bi-exclamation-triangle text-warning"></i>' : '<i class="bi bi-check-circle text-success"></i>'}</td>
+                    <td class="text-muted small">${formatTime(run.started_at)}</td>
                 </tr>
             `).join('');
         }
 
-        document.getElementById('lastRefresh').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        document.getElementById('lastRefresh').innerHTML = '<i class="bi bi-check-circle me-1 text-success"></i>' + new Date().toLocaleTimeString();
     } catch (e) {
         console.error('Dashboard load error:', e);
     }
 }
 
-async function triggerPipeline(projectId) {
-    const btn = event.target.closest('button');
+async function triggerPipeline(projectId, btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Running...';
-
     try {
         const result = await fetchAPI('/api/runs/trigger', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({project_id: projectId})
         });
-        showToast(result.message || `Pipeline completed for ${projectId}!`, 'success');
+        showToast(result.message || 'Pipeline completed!', 'success');
         loadDashboard();
     } catch (e) {
-        showToast(`Error: ${e.message}`, 'danger');
+        showToast('Error: ' + e.message, 'danger');
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-play-fill me-1"></i> Run Now';

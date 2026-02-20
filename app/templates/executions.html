@@ -3,9 +3,12 @@
 {% block title %}Executions{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h3><i class="bi bi-list-check me-2"></i>Executions</h3>
-    <select class="form-select form-select-sm w-auto" id="filterProject">
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h3 class="mb-0"><i class="bi bi-lightning-fill me-2"></i>Executions</h3>
+        <p class="text-muted mb-0 small">Pipeline run history</p>
+    </div>
+    <select class="form-select form-select-sm w-auto" id="filterProject" style="border-radius:8px">
         <option value="">All Projects</option>
         <option value="infiniteo">Infiniteo</option>
         <option value="yourops">YourOps</option>
@@ -20,25 +23,25 @@
                     <th>#</th>
                     <th>Project</th>
                     <th>Status</th>
-                    <th>Time</th>
+                    <th>Duration</th>
                     <th>Articles</th>
                     <th class="d-none d-md-table-cell">Model</th>
-                    <th class="d-none d-md-table-cell">Fallback</th>
+                    <th>Time</th>
                 </tr>
             </thead>
             <tbody id="runsTable">
-                <tr><td colspan="7" class="text-center text-muted">Loading...</td></tr>
+                <tr><td colspan="7" class="page-loader"><div class="spinner-border spinner-border-sm"></div>&nbsp;Loading...</td></tr>
             </tbody>
         </table>
     </div>
 </div>
 
-<!-- Run Detail Modal (fullscreen on mobile) -->
+<!-- Run Detail Modal -->
 <div class="modal fade" id="runDetailModal" tabindex="-1">
     <div class="modal-dialog modal-xl modal-fullscreen-sm-down">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Run Details</h5>
+                <h5 class="modal-title"><i class="bi bi-lightning-fill me-2"></i>Run Details</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body" id="runDetailBody">Loading...</div>
@@ -60,81 +63,102 @@ async function loadRuns() {
     const params = new URLSearchParams({page: currentPage, per_page: 20});
     if (projectId) params.set('project_id', projectId);
 
-    const data = await fetchAPI(`/api/runs?${params}`);
+    const data = await fetchAPI('/api/runs?' + params);
     const tbody = document.getElementById('runsTable');
 
     if (data.runs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No executions found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><i class="bi bi-lightning d-block"></i><h5>No executions yet</h5><p>Go to Dashboard and hit "Run Now"</p></div></td></tr>';
         return;
     }
 
-    tbody.innerHTML = data.runs.map(run => {
-        const duration = run.completed_at
-            ? Math.round((new Date(run.completed_at) - new Date(run.started_at)) / 1000) + 's'
-            : 'Running...';
-        return `
-        <tr style="cursor:pointer" onclick="showRunDetail(${run.id})">
-            <td>${run.id}</td>
-            <td><strong>${run.project_id}</strong></td>
-            <td><span class="badge bg-${statusColor(run.status)}">${run.status}</span></td>
-            <td>${formatTime(run.started_at)}</td>
-            <td>${run.articles_new || 0}/${run.articles_fetched || 0}</td>
-            <td class="d-none d-md-table-cell">${run.ai_model_used || '-'}</td>
-            <td class="d-none d-md-table-cell">${run.used_fallback ? '<span class="text-warning">Yes</span>' : 'No'}</td>
-        </tr>`;
+    tbody.innerHTML = data.runs.map(function(run) {
+        var duration = '-';
+        if (run.completed_at && run.started_at) {
+            var ms = new Date(run.completed_at + 'Z') - new Date(run.started_at + 'Z');
+            var secs = Math.round(ms / 1000);
+            duration = secs < 60 ? secs + 's' : Math.floor(secs/60) + 'm ' + (secs%60) + 's';
+        } else if (run.status === 'running') {
+            duration = '<span class="text-info"><i class="bi bi-arrow-repeat spin"></i> Running</span>';
+        }
+
+        return '<tr style="cursor:pointer" onclick="showRunDetail(' + run.id + ')">' +
+            '<td class="text-muted">' + run.id + '</td>' +
+            '<td><strong>' + run.project_id + '</strong></td>' +
+            '<td><span class="badge bg-' + statusColor(run.status) + '">' + run.status + '</span>' +
+                (run.error_message ? ' <i class="bi bi-info-circle text-muted" title="' + run.error_message + '"></i>' : '') +
+            '</td>' +
+            '<td>' + duration + '</td>' +
+            '<td>' + (run.articles_new || 0) + '/' + (run.articles_fetched || 0) + '</td>' +
+            '<td class="d-none d-md-table-cell text-muted small">' + (run.ai_model_used || '-') + '</td>' +
+            '<td class="text-muted small">' + formatTime(run.started_at) + '</td>' +
+        '</tr>';
     }).join('');
 
     // Pagination
-    const totalPages = Math.ceil(data.total / data.per_page);
-    const pagination = document.getElementById('pagination');
+    var totalPages = Math.ceil(data.total / data.per_page);
+    var pagination = document.getElementById('pagination');
     if (totalPages <= 1) { pagination.innerHTML = ''; return; }
-    let pages = '';
-    for (let i = 1; i <= totalPages; i++) {
-        pages += `<li class="page-item ${i === currentPage ? 'active' : ''}">
-            <a class="page-link" href="#" onclick="currentPage=${i}; loadRuns(); return false;">${i}</a></li>`;
+    var pages = '';
+    for (var i = 1; i <= totalPages; i++) {
+        pages += '<li class="page-item ' + (i === currentPage ? 'active' : '') + '">' +
+            '<a class="page-link" href="#" onclick="currentPage=' + i + '; loadRuns(); return false;">' + i + '</a></li>';
     }
     pagination.innerHTML = pages;
 }
 
 async function showRunDetail(runId) {
-    const data = await fetchAPI(`/api/runs/${runId}`);
-    const body = document.getElementById('runDetailBody');
+    var data = await fetchAPI('/api/runs/' + runId);
+    var body = document.getElementById('runDetailBody');
 
-    const logsHtml = (data.log_details || []).map(log => `
-        <tr>
-            <td><span class="badge bg-${statusColor(log.status)}">${log.status}</span></td>
-            <td><strong>${log.step}</strong></td>
-            <td class="small">${log.message}</td>
-        </tr>
-    `).join('');
+    var duration = '-';
+    if (data.completed_at && data.started_at) {
+        var ms = new Date(data.completed_at + 'Z') - new Date(data.started_at + 'Z');
+        var secs = Math.round(ms / 1000);
+        duration = secs < 60 ? secs + 's' : Math.floor(secs/60) + 'm ' + (secs%60) + 's';
+    }
 
-    const postsHtml = (data.posts || []).map(post => `
-        <div class="card mb-2">
-            <div class="card-header d-flex justify-content-between py-2">
-                <span><i class="bi bi-${post.platform === 'linkedin' ? 'linkedin' : 'twitter-x'}"></i> ${post.platform}</span>
-                <span>${post.is_fallback ? '<span class="badge bg-warning">Fallback</span>' : '<span class="badge bg-success">AI</span>'}</span>
-            </div>
-            <div class="card-body p-2"><pre class="mb-0 small" style="white-space:pre-wrap">${post.content}</pre></div>
-        </div>
-    `).join('');
+    var logsHtml = (data.log_details || []).map(function(log) {
+        return '<tr>' +
+            '<td><span class="badge bg-' + statusColor(log.status) + '">' + log.status + '</span></td>' +
+            '<td><strong>' + log.step + '</strong></td>' +
+            '<td class="small">' + log.message + '</td>' +
+        '</tr>';
+    }).join('');
 
-    body.innerHTML = `
-        <h6>Step Log</h6>
-        <div class="table-responsive-wrapper">
-            <table class="table table-sm mb-4">
-                <thead><tr><th>Status</th><th>Step</th><th>Message</th></tr></thead>
-                <tbody>${logsHtml || '<tr><td colspan="3">No logs</td></tr>'}</tbody>
-            </table>
-        </div>
-        <h6>Generated Posts</h6>
-        ${postsHtml || '<p class="text-muted">No posts generated</p>'}
-        ${data.selected_article ? `<h6 class="mt-3">Selected Article</h6><p class="small"><a href="${data.selected_article.url}" target="_blank">${data.selected_article.title}</a> (score: ${data.selected_article.score})</p>` : ''}
-    `;
+    var postsHtml = (data.posts || []).map(function(post) {
+        var icon = post.platform === 'linkedin' ? 'linkedin' : 'twitter-x';
+        var color = post.platform === 'linkedin' ? 'primary' : 'info';
+        var escaped = post.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        var results = (post.publish_results || []).map(function(pr) {
+            return '<span class="badge bg-' + (pr.status === 'success' ? 'success' : 'danger') + ' me-1">' + pr.account_type + ': ' + pr.status + '</span>';
+        }).join('') || '<span class="badge bg-secondary">Not published</span>';
+
+        return '<div class="card mb-2">' +
+            '<div class="card-header d-flex justify-content-between py-2">' +
+                '<span><i class="bi bi-' + icon + ' text-' + color + ' me-1"></i> ' + post.platform.toUpperCase() + '</span>' +
+                '<div>' + results + '</div>' +
+            '</div>' +
+            '<div class="card-body p-3"><pre class="mb-0 small" style="white-space:pre-wrap;font-family:inherit">' + escaped + '</pre></div>' +
+        '</div>';
+    }).join('');
+
+    body.innerHTML =
+        '<div class="row g-3 mb-3">' +
+            '<div class="col-6 col-md-3"><div class="stat-card"><div class="stat-value">' + data.status + '</div><div class="stat-label">Status</div></div></div>' +
+            '<div class="col-6 col-md-3"><div class="stat-card"><div class="stat-value">' + duration + '</div><div class="stat-label">Duration</div></div></div>' +
+            '<div class="col-6 col-md-3"><div class="stat-card"><div class="stat-value">' + (data.articles_fetched || 0) + '</div><div class="stat-label">Articles</div></div></div>' +
+            '<div class="col-6 col-md-3"><div class="stat-card"><div class="stat-value">' + (data.ai_model_used || '-') + '</div><div class="stat-label">Model</div></div></div>' +
+        '</div>' +
+        (data.error_message ? '<div class="alert alert-danger py-2 small"><i class="bi bi-exclamation-triangle me-1"></i>' + data.error_message + '</div>' : '') +
+        (data.selected_article ? '<div class="alert alert-info py-2 small"><i class="bi bi-newspaper me-1"></i>Source: <a href="' + data.selected_article.url + '" target="_blank">' + data.selected_article.title + '</a> (score: ' + data.selected_article.score + ')</div>' : '') +
+        '<h6 class="mt-3">Generated Posts</h6>' +
+        (postsHtml || '<p class="text-muted small">No posts generated</p>') +
+        (logsHtml ? '<h6 class="mt-3">Step Log</h6><div class="table-responsive-wrapper"><table class="table table-sm"><thead><tr><th>Status</th><th>Step</th><th>Message</th></tr></thead><tbody>' + logsHtml + '</tbody></table></div>' : '');
 
     new bootstrap.Modal(document.getElementById('runDetailModal')).show();
 }
 
-document.getElementById('filterProject').addEventListener('change', () => { currentPage = 1; loadRuns(); });
+document.getElementById('filterProject').addEventListener('change', function() { currentPage = 1; loadRuns(); });
 loadRuns();
 </script>
 {% endblock %}

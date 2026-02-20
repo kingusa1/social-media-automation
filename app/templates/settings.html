@@ -1,16 +1,25 @@
 {% extends "base.html" %}
 {% set active_page = "settings" %}
-{% block title %}Settings{% endblock %}
+{% block title %}Projects{% endblock %}
 
 {% block content %}
-<h3 class="mb-3"><i class="bi bi-gear me-2"></i>Projects</h3>
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h3 class="mb-0"><i class="bi bi-sliders me-2"></i>Project Settings</h3>
+        <p class="text-muted mb-0 small">Configure RSS feeds, schedules, and posting options</p>
+    </div>
+</div>
 
-<ul class="nav nav-tabs mb-3" id="projectTabs">
+<ul class="nav nav-pills mb-3 gap-2" id="projectTabs">
     <li class="nav-item">
-        <a class="nav-link active" data-bs-toggle="tab" href="#tab-infiniteo">Infiniteo</a>
+        <a class="nav-link active" data-bs-toggle="tab" href="#tab-infiniteo" style="border-radius:8px">
+            <i class="bi bi-circle-fill text-primary me-1" style="font-size:0.5rem"></i> Infiniteo
+        </a>
     </li>
     <li class="nav-item">
-        <a class="nav-link" data-bs-toggle="tab" href="#tab-yourops">YourOps</a>
+        <a class="nav-link" data-bs-toggle="tab" href="#tab-yourops" style="border-radius:8px">
+            <i class="bi bi-circle-fill text-success me-1" style="font-size:0.5rem"></i> YourOps
+        </a>
     </li>
 </ul>
 
@@ -20,85 +29,88 @@
 {% block extra_scripts %}
 <script>
 async function loadSettings() {
-    const projects = await fetchAPI('/api/projects');
-    const tabContent = document.getElementById('projectTabContent');
+    var projects = await fetchAPI('/api/projects');
+    var tabContent = document.getElementById('projectTabContent');
 
-    tabContent.innerHTML = projects.map((p, i) => `
-        <div class="tab-pane fade ${i === 0 ? 'show active' : ''}" id="tab-${p.id}">
-            <form onsubmit="saveProject(event, '${p.id}')">
-                <div class="row g-3">
-                    <div class="col-12 col-md-6">
-                        <div class="card">
-                            <div class="card-header py-2"><h6 class="mb-0">General</h6></div>
-                            <div class="card-body">
-                                <div class="mb-3">
-                                    <label class="form-label small">Display Name</label>
-                                    <input type="text" class="form-control" id="${p.id}-name" value="${p.display_name}">
-                                </div>
-                                <div class="mb-3">
-                                    <label class="form-label small">Schedule (Cron)</label>
-                                    <input type="text" class="form-control font-monospace" id="${p.id}-cron" value="${p.schedule_cron}">
-                                    <small class="text-muted">e.g. "0 14 * * *" = daily 2PM UTC</small>
-                                </div>
-                                <div class="form-check mb-2">
-                                    <input type="checkbox" class="form-check-input" id="${p.id}-twitter" ${p.twitter_enabled ? 'checked' : ''}>
-                                    <label class="form-check-label" for="${p.id}-twitter">Twitter posting</label>
-                                </div>
-                                <div class="form-check">
-                                    <input type="checkbox" class="form-check-input" id="${p.id}-active" ${p.is_active ? 'checked' : ''}>
-                                    <label class="form-check-label" for="${p.id}-active">Active</label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-12 col-md-6">
-                        <div class="card">
-                            <div class="card-header py-2"><h6 class="mb-0">RSS Feeds</h6></div>
-                            <div class="card-body">
-                                <textarea class="form-control font-monospace" id="${p.id}-feeds" rows="6" style="font-size:0.8rem">${(p.rss_feeds || []).join('\\n')}</textarea>
-                                <small class="text-muted">One URL per line</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-12">
-                        <div class="card">
-                            <div class="card-header py-2"><h6 class="mb-0">Hashtags</h6></div>
-                            <div class="card-body">
-                                <input type="text" class="form-control" id="${p.id}-hashtags" value="${(p.hashtags || []).join(', ')}">
-                                <small class="text-muted">Comma-separated</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-12">
-                        <button type="submit" class="btn btn-primary w-100 w-md-auto btn-run">
-                            <i class="bi bi-check-lg me-1"></i>Save Changes
-                        </button>
-                    </div>
-                </div>
-            </form>
-        </div>
-    `).join('');
+    tabContent.innerHTML = projects.map(function(p, i) {
+        var feeds = (p.rss_feeds || []).join('\n');
+        var hashtags = (p.hashtags || []).join(', ');
+        var colorName = p.id === 'infiniteo' ? 'primary' : 'success';
+
+        return '<div class="tab-pane fade ' + (i === 0 ? 'show active' : '') + '" id="tab-' + p.id + '">' +
+            '<form onsubmit="saveProject(event, \'' + p.id + '\')">' +
+                '<div class="row g-3">' +
+                    '<div class="col-12 col-md-6">' +
+                        '<div class="card">' +
+                            '<div class="card-header py-2"><h6 class="mb-0"><i class="bi bi-gear me-1"></i> General</h6></div>' +
+                            '<div class="card-body">' +
+                                '<div class="mb-3">' +
+                                    '<label class="form-label small fw-medium">Display Name</label>' +
+                                    '<input type="text" class="form-control" id="' + p.id + '-name" value="' + p.display_name + '">' +
+                                '</div>' +
+                                '<div class="mb-3">' +
+                                    '<label class="form-label small fw-medium">Schedule (Cron)</label>' +
+                                    '<input type="text" class="form-control font-monospace" id="' + p.id + '-cron" value="' + p.schedule_cron + '">' +
+                                    '<small class="text-muted">e.g. "0 14 * * *" = daily 2PM UTC</small>' +
+                                '</div>' +
+                                '<div class="form-check form-switch mb-2">' +
+                                    '<input type="checkbox" class="form-check-input" id="' + p.id + '-twitter" ' + (p.twitter_enabled ? 'checked' : '') + '>' +
+                                    '<label class="form-check-label small" for="' + p.id + '-twitter"><i class="bi bi-twitter-x me-1"></i>Twitter posting</label>' +
+                                '</div>' +
+                                '<div class="form-check form-switch">' +
+                                    '<input type="checkbox" class="form-check-input" id="' + p.id + '-active" ' + (p.is_active ? 'checked' : '') + '>' +
+                                    '<label class="form-check-label small" for="' + p.id + '-active"><i class="bi bi-power me-1"></i>Project active</label>' +
+                                '</div>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="col-12 col-md-6">' +
+                        '<div class="card">' +
+                            '<div class="card-header py-2"><h6 class="mb-0"><i class="bi bi-rss me-1"></i> RSS Feeds</h6></div>' +
+                            '<div class="card-body">' +
+                                '<textarea class="form-control font-monospace" id="' + p.id + '-feeds" rows="8" style="font-size:0.8rem">' + feeds + '</textarea>' +
+                                '<small class="text-muted">One URL per line</small>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="col-12">' +
+                        '<div class="card">' +
+                            '<div class="card-header py-2"><h6 class="mb-0"><i class="bi bi-hash me-1"></i> Hashtags</h6></div>' +
+                            '<div class="card-body">' +
+                                '<input type="text" class="form-control" id="' + p.id + '-hashtags" value="' + hashtags + '">' +
+                                '<small class="text-muted">Comma-separated hashtags used in generated posts</small>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="col-12">' +
+                        '<button type="submit" class="btn btn-' + colorName + ' btn-run w-100">' +
+                            '<i class="bi bi-check-lg me-1"></i> Save Changes' +
+                        '</button>' +
+                    '</div>' +
+                '</div>' +
+            '</form>' +
+        '</div>';
+    }).join('');
 }
 
 async function saveProject(e, projectId) {
     e.preventDefault();
+    var feedsText = document.getElementById(projectId + '-feeds').value;
+    var feeds = feedsText.split('\n').map(function(f) { return f.trim(); }).filter(function(f) { return f; });
+    var hashtagsText = document.getElementById(projectId + '-hashtags').value;
+    var hashtags = hashtagsText.split(',').map(function(h) { return h.trim(); }).filter(function(h) { return h; });
 
-    const feedsText = document.getElementById(`${projectId}-feeds`).value;
-    const feeds = feedsText.split('\\n').map(f => f.trim()).filter(f => f);
-    const hashtagsText = document.getElementById(`${projectId}-hashtags`).value;
-    const hashtags = hashtagsText.split(',').map(h => h.trim()).filter(h => h);
-
-    const update = {
-        display_name: document.getElementById(`${projectId}-name`).value,
-        schedule_cron: document.getElementById(`${projectId}-cron`).value,
-        twitter_enabled: document.getElementById(`${projectId}-twitter`).checked,
-        is_active: document.getElementById(`${projectId}-active`).checked,
+    var update = {
+        display_name: document.getElementById(projectId + '-name').value,
+        schedule_cron: document.getElementById(projectId + '-cron').value,
+        twitter_enabled: document.getElementById(projectId + '-twitter').checked,
+        is_active: document.getElementById(projectId + '-active').checked,
         rss_feeds: feeds,
         hashtags: hashtags,
     };
 
     try {
-        await fetchAPI(`/api/projects/${projectId}`, {
+        await fetchAPI('/api/projects/' + projectId, {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(update),

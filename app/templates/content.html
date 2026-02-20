@@ -2,10 +2,56 @@
 {% set active_page = "content" %}
 {% block title %}Content{% endblock %}
 
+{% block extra_head %}
+<style>
+    .post-card {
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.08);
+        overflow: hidden;
+        transition: all 0.2s;
+    }
+    .post-card:hover {
+        border-color: rgba(255,255,255,0.15);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+    }
+    .post-platform {
+        padding: 10px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 0.85rem;
+    }
+    .post-platform.linkedin { border-left: 3px solid #0a66c2; }
+    .post-platform.twitter { border-left: 3px solid #1d9bf0; }
+    .post-content {
+        padding: 16px;
+        font-size: 0.88rem;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        font-family: inherit;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    .post-footer {
+        padding: 10px 16px;
+        border-top: 1px solid rgba(255,255,255,0.05);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 0.8rem;
+    }
+    .char-count { font-size: 0.75rem; color: #8b949e; }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h3><i class="bi bi-file-text me-2"></i>Content</h3>
-    <select class="form-select form-select-sm w-auto" id="filterProject">
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h3 class="mb-0"><i class="bi bi-pencil-square me-2"></i>Content</h3>
+        <p class="text-muted mb-0 small">Generated posts from your pipeline</p>
+    </div>
+    <select class="form-select form-select-sm w-auto" id="filterProject" style="border-radius:8px">
         <option value="">All Projects</option>
         <option value="infiniteo">Infiniteo</option>
         <option value="yourops">YourOps</option>
@@ -13,7 +59,10 @@
 </div>
 
 <div id="postsContainer" class="row g-3">
-    <div class="col-12 text-center text-muted">Loading...</div>
+    <div class="col-12 page-loader">
+        <div class="spinner-border spinner-border-sm" role="status"></div>
+        Loading content...
+    </div>
 </div>
 
 <nav class="mt-3">
@@ -24,68 +73,76 @@
 {% block extra_scripts %}
 <script>
 async function loadPosts() {
-    const projectId = document.getElementById('filterProject').value;
-    const params = new URLSearchParams({page: 1, per_page: 20});
+    var projectId = document.getElementById('filterProject').value;
+    var params = new URLSearchParams({page: 1, per_page: 20});
     if (projectId) params.set('project_id', projectId);
 
-    const data = await fetchAPI(`/api/posts?${params}`);
-    const container = document.getElementById('postsContainer');
+    var data = await fetchAPI('/api/posts?' + params);
+    var container = document.getElementById('postsContainer');
 
     if (data.posts.length === 0) {
-        container.innerHTML = '<div class="col-12 text-center text-muted">No posts generated yet. Tap "Run Now" on the Dashboard to get started.</div>';
+        container.innerHTML = '<div class="col-12 empty-state"><i class="bi bi-pencil-square d-block"></i><h5>No content yet</h5><p>Run the pipeline from the Dashboard to generate posts</p></div>';
         return;
     }
 
-    container.innerHTML = data.posts.map(post => {
-        const platformIcon = post.platform === 'linkedin' ? 'linkedin' : 'twitter-x';
-        const platformColor = post.platform === 'linkedin' ? 'primary' : 'info';
-        const publishStatus = post.publish_results.map(pr =>
-            `<span class="badge bg-${pr.status === 'success' ? 'success' : 'danger'} me-1">${pr.account_type}: ${pr.status}</span>`
-        ).join('') || '<span class="badge bg-secondary">Not published</span>';
+    container.innerHTML = data.posts.map(function(post) {
+        var icon = post.platform === 'linkedin' ? 'linkedin' : 'twitter-x';
+        var colorName = post.platform === 'linkedin' ? 'primary' : 'info';
+        var platformClass = post.platform === 'linkedin' ? 'linkedin' : 'twitter';
+        var projColor = post.project_id === 'infiniteo' ? 'primary' : 'success';
 
-        // Escape content for safe embedding
-        const escaped = post.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        var publishStatus = post.publish_results.map(function(pr) {
+            return '<span class="badge bg-' + (pr.status === 'success' ? 'success' : 'danger') + ' me-1">' + pr.account_type + ': ' + pr.status + '</span>';
+        }).join('') || '<span class="badge bg-secondary">Not published</span>';
 
-        return `
-        <div class="col-12 col-md-6">
-            <div class="card h-100">
-                <div class="card-header d-flex justify-content-between align-items-center py-2">
-                    <div>
-                        <i class="bi bi-${platformIcon} text-${platformColor} me-1"></i>
-                        <strong>${post.platform.toUpperCase()}</strong>
-                        <span class="badge bg-${post.project_id === 'infiniteo' ? 'primary' : 'success'} ms-1">${post.project_id}</span>
-                    </div>
-                    <div>
-                        ${post.is_fallback ? '<span class="badge bg-warning">Fallback</span>' : `<span class="badge bg-info">AI (${post.quality_score}%)</span>`}
-                    </div>
-                </div>
-                <div class="card-body p-2 p-md-3">
-                    <pre class="mb-2" style="white-space:pre-wrap;font-family:inherit;font-size:0.85rem">${escaped}</pre>
-                    <hr>
-                    <small class="text-muted d-block mb-1">Source: <a href="${post.article_url}" target="_blank">${(post.article_title || 'Article').substring(0, 50)}</a></small>
-                    <small class="text-muted d-block mb-2">${formatTime(post.created_at)}</small>
-                    <div>${publishStatus}</div>
-                </div>
-                <div class="card-footer py-2">
-                    <button class="btn btn-sm btn-outline-secondary" data-post-id="${post.id}" onclick="copyPost(this)">
-                        <i class="bi bi-clipboard me-1"></i>Copy
-                    </button>
-                </div>
-            </div>
-        </div>`;
+        var escaped = post.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        var charCount = post.content.length;
+        var maxChar = post.platform === 'twitter' ? 280 : 3000;
+        var countColor = charCount > maxChar * 0.9 ? 'text-warning' : 'text-muted';
+
+        return '<div class="col-12 col-md-6">' +
+            '<div class="post-card">' +
+                '<div class="post-platform ' + platformClass + '">' +
+                    '<div class="d-flex align-items-center gap-2">' +
+                        '<i class="bi bi-' + icon + ' text-' + colorName + '"></i>' +
+                        '<strong>' + post.platform.toUpperCase() + '</strong>' +
+                        '<span class="badge bg-' + projColor + '" style="font-size:0.7rem">' + post.project_id + '</span>' +
+                    '</div>' +
+                    '<div>' +
+                        (post.is_fallback ? '<span class="badge bg-warning">Fallback</span>' : '<span class="badge bg-dark border">AI ' + post.quality_score + '%</span>') +
+                    '</div>' +
+                '</div>' +
+                '<div class="post-content">' + escaped + '</div>' +
+                '<div class="post-footer">' +
+                    '<div>' +
+                        '<a href="' + post.article_url + '" target="_blank" class="text-muted text-decoration-none small">' +
+                            '<i class="bi bi-link-45deg me-1"></i>' + ((post.article_title || 'Article').substring(0, 40)) +
+                        '</a>' +
+                    '</div>' +
+                    '<div class="d-flex align-items-center gap-2">' +
+                        '<span class="char-count ' + countColor + '">' + charCount + '/' + maxChar + '</span>' +
+                        '<button class="btn btn-sm btn-outline-secondary" style="font-size:0.75rem;padding:2px 8px" data-post-id="' + post.id + '" onclick="copyPost(this)">' +
+                            '<i class="bi bi-clipboard"></i>' +
+                        '</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="px-3 pb-2">' +
+                    '<div class="d-flex align-items-center gap-1">' + publishStatus + '<span class="text-muted small ms-auto">' + formatTime(post.created_at) + '</span></div>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
     }).join('');
 
-    // Store post contents for copying
     window._postContents = {};
-    data.posts.forEach(p => window._postContents[p.id] = p.content);
+    data.posts.forEach(function(p) { window._postContents[p.id] = p.content; });
 }
 
 function copyPost(btn) {
-    const postId = btn.getAttribute('data-post-id');
-    const text = window._postContents[postId] || '';
+    var postId = btn.getAttribute('data-post-id');
+    var text = window._postContents[postId] || '';
     navigator.clipboard.writeText(text);
-    btn.innerHTML = '<i class="bi bi-check me-1"></i>Copied!';
-    setTimeout(() => btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy', 2000);
+    btn.innerHTML = '<i class="bi bi-check text-success"></i>';
+    setTimeout(function() { btn.innerHTML = '<i class="bi bi-clipboard"></i>'; }, 2000);
 }
 
 document.getElementById('filterProject').addEventListener('change', loadPosts);

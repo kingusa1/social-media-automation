@@ -29,7 +29,19 @@ router = APIRouter()
 
 @router.get("/overview")
 def get_overview(db: Session = Depends(get_db)):
-    """Get dashboard overview for both projects."""
+    """Get dashboard overview for all projects with connection status."""
+    # Auto-cleanup stuck runs (running > 10 min = timed out)
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+    db.query(PipelineRun).filter(
+        PipelineRun.status == "running",
+        PipelineRun.started_at < cutoff,
+    ).update({
+        PipelineRun.status: "failed",
+        PipelineRun.error_message: "Timed out",
+        PipelineRun.completed_at: datetime.now(timezone.utc),
+    })
+    db.commit()
+
     projects = db.query(Project).all()
     project_data = []
 
@@ -47,12 +59,25 @@ def get_overview(db: Session = Depends(get_db)):
             .filter(GeneratedPost.project_id == p.id, GeneratedPost.created_at >= today_start)
             .count()
         )
+        total_posts = db.query(GeneratedPost).filter(GeneratedPost.project_id == p.id).count()
         total_articles = db.query(Article).filter(Article.project_id == p.id).count()
+        total_runs = db.query(PipelineRun).filter(PipelineRun.project_id == p.id).count()
+        success_runs = db.query(PipelineRun).filter(
+            PipelineRun.project_id == p.id, PipelineRun.status == "success"
+        ).count()
+
+        # Connection status
+        profiles = db.query(Profile).filter(Profile.project_id == p.id).all()
+        linkedin_connected = any(pr.platform == "linkedin" and pr.access_token for pr in profiles)
+        twitter_connected = any(pr.platform == "twitter" and pr.access_token for pr in profiles)
 
         project_data.append({
             "id": p.id,
             "display_name": p.display_name,
             "is_active": p.is_active,
+            "twitter_enabled": p.twitter_enabled,
+            "linkedin_connected": linkedin_connected,
+            "twitter_connected": twitter_connected,
             "last_run": {
                 "status": last_run.status if last_run else "never",
                 "time": last_run.started_at.isoformat() if last_run else None,
@@ -60,7 +85,10 @@ def get_overview(db: Session = Depends(get_db)):
             } if last_run else None,
             "next_run": next_run.isoformat() if next_run else None,
             "today_posts": today_posts,
+            "total_posts": total_posts,
             "total_articles": total_articles,
+            "total_runs": total_runs,
+            "success_runs": success_runs,
         })
 
     recent_runs = (

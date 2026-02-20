@@ -16,7 +16,7 @@
             <i class="bi bi-list fs-5"></i>
         </button>
         <span class="navbar-brand mb-0 fw-bold"><i class="bi bi-broadcast me-1"></i> AutoPost</span>
-        <span class="badge bg-primary" id="mobileStatus">Live</span>
+        <span class="badge bg-primary">Live</span>
     </nav>
 
     <!-- Mobile Offcanvas Sidebar -->
@@ -29,17 +29,17 @@
             <ul class="nav flex-column p-2">
                 <li class="nav-item">
                     <a class="nav-link {% if active_page == 'dashboard' %}active{% endif %}" href="/">
-                        <i class="bi bi-speedometer2 me-2"></i> Dashboard
+                        <i class="bi bi-grid-1x2-fill me-2"></i> Dashboard
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link {% if active_page == 'executions' %}active{% endif %}" href="/executions">
-                        <i class="bi bi-list-check me-2"></i> Executions
+                        <i class="bi bi-lightning-fill me-2"></i> Executions
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link {% if active_page == 'content' %}active{% endif %}" href="/content">
-                        <i class="bi bi-file-text me-2"></i> Content
+                        <i class="bi bi-pencil-square me-2"></i> Content
                     </a>
                 </li>
                 <li class="nav-item">
@@ -48,21 +48,21 @@
                     </a>
                 </li>
                 <li class="nav-item mt-3">
-                    <small class="text-muted px-3">SETTINGS</small>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if active_page == 'settings' %}active{% endif %}" href="/settings">
-                        <i class="bi bi-gear me-2"></i> Projects
-                    </a>
+                    <small class="text-muted px-3 text-uppercase" style="font-size:0.7rem;letter-spacing:1px">Settings</small>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link {% if active_page == 'profiles' %}active{% endif %}" href="/profiles">
-                        <i class="bi bi-plug me-2"></i> Connections
+                        <i class="bi bi-plug-fill me-2"></i> Connections
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if active_page == 'settings' %}active{% endif %}" href="/settings">
+                        <i class="bi bi-sliders me-2"></i> Projects
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link {% if active_page == 'metrics' %}active{% endif %}" href="/metrics">
-                        <i class="bi bi-graph-up me-2"></i> Metrics
+                        <i class="bi bi-bar-chart-fill me-2"></i> Metrics
                     </a>
                 </li>
             </ul>
@@ -70,26 +70,26 @@
     </div>
 
     <div class="d-flex">
-        <!-- Desktop Sidebar (hidden on mobile) -->
-        <nav id="sidebar" class="bg-dark border-end d-none d-md-block" style="width: 220px; min-height: 100vh; position: fixed;">
-            <div class="p-3 border-bottom">
-                <h5 class="mb-0"><i class="bi bi-broadcast"></i> AutoPost</h5>
-                <small class="text-muted">Content Automation</small>
+        <!-- Desktop Sidebar -->
+        <nav id="sidebar" class="bg-dark border-end d-none d-md-block" style="width:240px;min-height:100vh;position:fixed;">
+            <div class="p-3 border-bottom" style="border-color:rgba(255,255,255,0.06)!important">
+                <h5 class="mb-0 fw-bold"><i class="bi bi-broadcast text-primary"></i> AutoPost</h5>
+                <small class="text-muted" style="font-size:0.75rem">Social Media Automation</small>
             </div>
-            <ul class="nav flex-column p-2">
+            <ul class="nav flex-column p-2 mt-1">
                 <li class="nav-item">
                     <a class="nav-link {% if active_page == 'dashboard' %}active{% endif %}" href="/">
-                        <i class="bi bi-speedometer2 me-2"></i> Dashboard
+                        <i class="bi bi-grid-1x2-fill me-2"></i> Dashboard
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link {% if active_page == 'executions' %}active{% endif %}" href="/executions">
-                        <i class="bi bi-list-check me-2"></i> Executions
+                        <i class="bi bi-lightning-fill me-2"></i> Executions
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link {% if active_page == 'content' %}active{% endif %}" href="/content">
-                        <i class="bi bi-file-text me-2"></i> Content
+                        <i class="bi bi-pencil-square me-2"></i> Content
                     </a>
                 </li>
                 <li class="nav-item">
@@ -98,21 +98,21 @@
                     </a>
                 </li>
                 <li class="nav-item mt-3">
-                    <small class="text-muted px-3">SETTINGS</small>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if active_page == 'settings' %}active{% endif %}" href="/settings">
-                        <i class="bi bi-gear me-2"></i> Projects
-                    </a>
+                    <small class="text-muted px-3 text-uppercase" style="font-size:0.7rem;letter-spacing:1px">Settings</small>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link {% if active_page == 'profiles' %}active{% endif %}" href="/profiles">
-                        <i class="bi bi-plug me-2"></i> Connections
+                        <i class="bi bi-plug-fill me-2"></i> Connections
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if active_page == 'settings' %}active{% endif %}" href="/settings">
+                        <i class="bi bi-sliders me-2"></i> Projects
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link {% if active_page == 'metrics' %}active{% endif %}" href="/metrics">
-                        <i class="bi bi-graph-up me-2"></i> Metrics
+                        <i class="bi bi-bar-chart-fill me-2"></i> Metrics
                     </a>
                 </li>
             </ul>
