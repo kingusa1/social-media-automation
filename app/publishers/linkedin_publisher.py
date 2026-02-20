@@ -31,7 +31,7 @@ def publish_to_linkedin(post_content: str, profile: Profile) -> dict:
         "Authorization": f"Bearer {profile.access_token}",
         "Content-Type": "application/json",
         "X-Restli-Protocol-Version": "2.0.0",
-        "LinkedIn-Version": "202401",
+        "LinkedIn-Version": "202501",
     }
 
     payload = {
