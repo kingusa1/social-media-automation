@@ -3,7 +3,7 @@
 {% block title %}Settings{% endblock %}
 
 {% block content %}
-<h3 class="mb-4"><i class="bi bi-gear me-2"></i>Project Settings</h3>
+<h3 class="mb-3"><i class="bi bi-gear me-2"></i>Projects</h3>
 
 <ul class="nav nav-tabs mb-3" id="projectTabs">
     <li class="nav-item">
@@ -27,50 +27,50 @@ async function loadSettings() {
         <div class="tab-pane fade ${i === 0 ? 'show active' : ''}" id="tab-${p.id}">
             <form onsubmit="saveProject(event, '${p.id}')">
                 <div class="row g-3">
-                    <div class="col-md-6">
+                    <div class="col-12 col-md-6">
                         <div class="card">
-                            <div class="card-header"><h6 class="mb-0">General</h6></div>
+                            <div class="card-header py-2"><h6 class="mb-0">General</h6></div>
                             <div class="card-body">
                                 <div class="mb-3">
-                                    <label class="form-label">Display Name</label>
+                                    <label class="form-label small">Display Name</label>
                                     <input type="text" class="form-control" id="${p.id}-name" value="${p.display_name}">
                                 </div>
                                 <div class="mb-3">
-                                    <label class="form-label">Schedule (Cron)</label>
+                                    <label class="form-label small">Schedule (Cron)</label>
                                     <input type="text" class="form-control font-monospace" id="${p.id}-cron" value="${p.schedule_cron}">
-                                    <small class="text-muted">e.g. "0 14 * * *" = daily at 2 PM UTC</small>
+                                    <small class="text-muted">e.g. "0 14 * * *" = daily 2PM UTC</small>
                                 </div>
-                                <div class="form-check mb-3">
+                                <div class="form-check mb-2">
                                     <input type="checkbox" class="form-check-input" id="${p.id}-twitter" ${p.twitter_enabled ? 'checked' : ''}>
-                                    <label class="form-check-label" for="${p.id}-twitter">Enable Twitter posting</label>
+                                    <label class="form-check-label" for="${p.id}-twitter">Twitter posting</label>
                                 </div>
                                 <div class="form-check">
                                     <input type="checkbox" class="form-check-input" id="${p.id}-active" ${p.is_active ? 'checked' : ''}>
-                                    <label class="form-check-label" for="${p.id}-active">Project active</label>
+                                    <label class="form-check-label" for="${p.id}-active">Active</label>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-12 col-md-6">
                         <div class="card">
-                            <div class="card-header"><h6 class="mb-0">RSS Feeds</h6></div>
+                            <div class="card-header py-2"><h6 class="mb-0">RSS Feeds</h6></div>
                             <div class="card-body">
-                                <textarea class="form-control font-monospace" id="${p.id}-feeds" rows="8" style="font-size:0.85rem">${(p.rss_feeds || []).join('\n')}</textarea>
-                                <small class="text-muted">One feed URL per line</small>
+                                <textarea class="form-control font-monospace" id="${p.id}-feeds" rows="6" style="font-size:0.8rem">${(p.rss_feeds || []).join('\\n')}</textarea>
+                                <small class="text-muted">One URL per line</small>
                             </div>
                         </div>
                     </div>
                     <div class="col-12">
                         <div class="card">
-                            <div class="card-header"><h6 class="mb-0">Hashtags</h6></div>
+                            <div class="card-header py-2"><h6 class="mb-0">Hashtags</h6></div>
                             <div class="card-body">
                                 <input type="text" class="form-control" id="${p.id}-hashtags" value="${(p.hashtags || []).join(', ')}">
-                                <small class="text-muted">Comma-separated hashtags</small>
+                                <small class="text-muted">Comma-separated</small>
                             </div>
                         </div>
                     </div>
                     <div class="col-12">
-                        <button type="submit" class="btn btn-primary">
+                        <button type="submit" class="btn btn-primary w-100 w-md-auto btn-run">
                             <i class="bi bi-check-lg me-1"></i>Save Changes
                         </button>
                     </div>
@@ -84,7 +84,7 @@ async function saveProject(e, projectId) {
     e.preventDefault();
 
     const feedsText = document.getElementById(`${projectId}-feeds`).value;
-    const feeds = feedsText.split('\n').map(f => f.trim()).filter(f => f);
+    const feeds = feedsText.split('\\n').map(f => f.trim()).filter(f => f);
     const hashtagsText = document.getElementById(`${projectId}-hashtags`).value;
     const hashtags = hashtagsText.split(',').map(h => h.trim()).filter(h => h);
 
@@ -105,7 +105,7 @@ async function saveProject(e, projectId) {
         });
         showToast('Settings saved!', 'success');
     } catch (e) {
-        showToast(`Error: ${e.message}`, 'danger');
+        showToast('Error: ' + e.message, 'danger');
     }
 }
 

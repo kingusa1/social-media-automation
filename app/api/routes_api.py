@@ -446,12 +446,15 @@ def get_metrics(project_id: str = None, days: int = 30, db: Session = Depends(ge
     if project_id:
         query = query.filter(PipelineRun.project_id == project_id)
 
+    # Exclude still-running entries from completed metrics
     runs = query.all()
-    total = len(runs)
-    successful = sum(1 for r in runs if r.status == "success")
-    failed = sum(1 for r in runs if r.status == "failed")
-    fallback = sum(1 for r in runs if r.used_fallback)
-    avg_articles = sum(r.articles_fetched for r in runs) / max(total, 1)
+    completed_runs = [r for r in runs if r.status != "running"]
+    total = len(completed_runs)
+    successful = sum(1 for r in completed_runs if r.status == "success")
+    failed = sum(1 for r in completed_runs if r.status == "failed")
+    partial = sum(1 for r in completed_runs if r.status == "partial_failure")
+    fallback = sum(1 for r in completed_runs if r.used_fallback)
+    avg_articles = sum((r.articles_fetched or 0) for r in completed_runs) / max(total, 1)
 
     # Top sources
     source_query = db.query(Article.source_feed, func.count(Article.id).label("count"))
@@ -466,7 +469,7 @@ def get_metrics(project_id: str = None, days: int = 30, db: Session = Depends(ge
         "total_runs": total,
         "successful_runs": successful,
         "failed_runs": failed,
-        "partial_failures": total - successful - failed,
+        "partial_failures": partial,
         "fallback_count": fallback,
         "success_rate": round(successful / max(total, 1) * 100, 1),
         "avg_articles_per_run": round(avg_articles, 1),

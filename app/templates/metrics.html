@@ -7,72 +7,72 @@
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h3><i class="bi bi-graph-up me-2"></i>Quality Metrics</h3>
-    <div>
-        <select class="form-select form-select-sm d-inline-block w-auto" id="filterProject">
-            <option value="">All Projects</option>
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h3><i class="bi bi-graph-up me-2"></i>Metrics</h3>
+    <div class="d-flex gap-2">
+        <select class="form-select form-select-sm w-auto" id="filterProject">
+            <option value="">All</option>
             <option value="infiniteo">Infiniteo</option>
             <option value="yourops">YourOps</option>
         </select>
-        <select class="form-select form-select-sm d-inline-block w-auto ms-2" id="filterDays">
-            <option value="7">Last 7 days</option>
-            <option value="30" selected>Last 30 days</option>
-            <option value="90">Last 90 days</option>
+        <select class="form-select form-select-sm w-auto" id="filterDays">
+            <option value="7">7d</option>
+            <option value="30" selected>30d</option>
+            <option value="90">90d</option>
         </select>
     </div>
 </div>
 
-<!-- Summary Cards -->
-<div class="row g-3 mb-4">
-    <div class="col-md-3">
+<!-- Summary Cards (2x2 on mobile) -->
+<div class="row g-2 mb-4">
+    <div class="col-6 col-md-3">
         <div class="card text-center">
-            <div class="card-body">
-                <div class="fs-2 fw-bold text-primary" id="totalRuns">-</div>
-                <small class="text-muted">Total Runs</small>
+            <div class="card-body py-2">
+                <div class="fs-3 fw-bold text-primary" id="totalRuns">-</div>
+                <small class="text-muted">Runs</small>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card text-center">
-            <div class="card-body">
-                <div class="fs-2 fw-bold text-success" id="successRate">-</div>
-                <small class="text-muted">Success Rate</small>
+            <div class="card-body py-2">
+                <div class="fs-3 fw-bold text-success" id="successRate">-</div>
+                <small class="text-muted">Success</small>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card text-center">
-            <div class="card-body">
-                <div class="fs-2 fw-bold text-warning" id="fallbackRate">-</div>
-                <small class="text-muted">Fallback Used</small>
+            <div class="card-body py-2">
+                <div class="fs-3 fw-bold text-warning" id="fallbackRate">-</div>
+                <small class="text-muted">Fallbacks</small>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card text-center">
-            <div class="card-body">
-                <div class="fs-2 fw-bold text-info" id="avgArticles">-</div>
-                <small class="text-muted">Avg Articles/Run</small>
+            <div class="card-body py-2">
+                <div class="fs-3 fw-bold text-info" id="avgArticles">-</div>
+                <small class="text-muted">Avg Articles</small>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Charts -->
+<!-- Charts (stacked on mobile) -->
 <div class="row g-3">
-    <div class="col-md-6">
+    <div class="col-12 col-md-6">
         <div class="card">
-            <div class="card-header"><h6 class="mb-0">Run Status Distribution</h6></div>
-            <div class="card-body">
+            <div class="card-header py-2"><h6 class="mb-0">Status Distribution</h6></div>
+            <div class="card-body p-2">
                 <canvas id="statusChart" height="200"></canvas>
             </div>
         </div>
     </div>
-    <div class="col-md-6">
+    <div class="col-12 col-md-6">
         <div class="card">
-            <div class="card-header"><h6 class="mb-0">Top Article Sources</h6></div>
-            <div class="card-body">
+            <div class="card-header py-2"><h6 class="mb-0">Top Sources</h6></div>
+            <div class="card-body p-2">
                 <canvas id="sourcesChart" height="200"></canvas>
             </div>
         </div>
@@ -118,10 +118,10 @@ async function loadMetrics() {
         type: 'bar',
         data: {
             labels: sources.map(s => {
-                try { return new URL(s.source).hostname.replace('www.', ''); } catch { return s.source; }
+                try { return new URL(s.source).hostname.replace('www.', ''); } catch { return s.source || 'unknown'; }
             }),
             datasets: [{
-                label: 'Articles Selected',
+                label: 'Selected',
                 data: sources.map(s => s.count),
                 backgroundColor: '#0d6efd',
             }]

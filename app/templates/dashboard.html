@@ -3,58 +3,58 @@
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h3><i class="bi bi-speedometer2 me-2"></i>Operations Dashboard</h3>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3><i class="bi bi-speedometer2 me-2"></i>Dashboard</h3>
     <span class="badge bg-secondary" id="lastRefresh">Loading...</span>
 </div>
 
 <!-- Project Cards -->
-<div class="row g-4 mb-4" id="projectCards">
-    <div class="col-md-6">
+<div class="row g-3 mb-4" id="projectCards">
+    <div class="col-12 col-md-6">
         <div class="card border-primary h-100">
-            <div class="card-header bg-primary bg-opacity-10 d-flex justify-content-between">
+            <div class="card-header bg-primary bg-opacity-10 d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Infiniteo</h5>
                 <span class="badge bg-secondary" id="status-infiniteo">Loading</span>
             </div>
             <div class="card-body">
                 <div class="row text-center mb-3">
-                    <div class="col">
+                    <div class="col-6">
                         <div class="fs-4 fw-bold" id="articles-infiniteo">-</div>
-                        <small class="text-muted">Total Articles</small>
+                        <small class="text-muted">Articles</small>
                     </div>
-                    <div class="col">
+                    <div class="col-6">
                         <div class="fs-4 fw-bold" id="posts-infiniteo">-</div>
                         <small class="text-muted">Posts Today</small>
                     </div>
                 </div>
-                <p class="mb-1"><strong>Last Run:</strong> <span id="lastrun-infiniteo">Never</span></p>
-                <p class="mb-3"><strong>Next Run:</strong> <span id="nextrun-infiniteo">Not scheduled</span></p>
-                <button class="btn btn-primary w-100" onclick="triggerPipeline('infiniteo')">
+                <p class="mb-1 small"><strong>Last Run:</strong> <span id="lastrun-infiniteo">Never</span></p>
+                <p class="mb-3 small"><strong>Next Run:</strong> <span id="nextrun-infiniteo">Not scheduled</span></p>
+                <button class="btn btn-primary w-100 btn-run" onclick="triggerPipeline('infiniteo')">
                     <i class="bi bi-play-fill me-1"></i> Run Now
                 </button>
             </div>
         </div>
     </div>
-    <div class="col-md-6">
+    <div class="col-12 col-md-6">
         <div class="card border-success h-100">
-            <div class="card-header bg-success bg-opacity-10 d-flex justify-content-between">
+            <div class="card-header bg-success bg-opacity-10 d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">YourOps</h5>
                 <span class="badge bg-secondary" id="status-yourops">Loading</span>
             </div>
             <div class="card-body">
                 <div class="row text-center mb-3">
-                    <div class="col">
+                    <div class="col-6">
                         <div class="fs-4 fw-bold" id="articles-yourops">-</div>
-                        <small class="text-muted">Total Articles</small>
+                        <small class="text-muted">Articles</small>
                     </div>
-                    <div class="col">
+                    <div class="col-6">
                         <div class="fs-4 fw-bold" id="posts-yourops">-</div>
                         <small class="text-muted">Posts Today</small>
                     </div>
                 </div>
-                <p class="mb-1"><strong>Last Run:</strong> <span id="lastrun-yourops">Never</span></p>
-                <p class="mb-3"><strong>Next Run:</strong> <span id="nextrun-yourops">Not scheduled</span></p>
-                <button class="btn btn-success w-100" onclick="triggerPipeline('yourops')">
+                <p class="mb-1 small"><strong>Last Run:</strong> <span id="lastrun-yourops">Never</span></p>
+                <p class="mb-3 small"><strong>Next Run:</strong> <span id="nextrun-yourops">Not scheduled</span></p>
+                <button class="btn btn-success w-100 btn-run" onclick="triggerPipeline('yourops')">
                     <i class="bi bi-play-fill me-1"></i> Run Now
                 </button>
             </div>
@@ -65,9 +65,9 @@
 <!-- Recent Runs -->
 <div class="card">
     <div class="card-header">
-        <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Recent Pipeline Runs</h5>
+        <h6 class="mb-0"><i class="bi bi-clock-history me-2"></i>Recent Runs</h6>
     </div>
-    <div class="card-body p-0">
+    <div class="table-responsive-wrapper">
         <table class="table table-hover mb-0">
             <thead>
                 <tr>
@@ -111,15 +111,15 @@ async function loadDashboard() {
         // Recent runs table
         const tbody = document.getElementById('recentRuns');
         if (data.recent_runs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No runs yet. Click "Run Now" to start!</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No runs yet. Tap "Run Now" to start!</td></tr>';
         } else {
             tbody.innerHTML = data.recent_runs.map(run => `
                 <tr style="cursor:pointer" onclick="window.location='/executions'">
                     <td><strong>${run.project_id}</strong></td>
-                    <td>${run.trigger_type}</td>
+                    <td><span class="badge bg-info">${run.trigger_type}</span></td>
                     <td><span class="badge bg-${statusColor(run.status)}">${run.status}</span></td>
                     <td>${formatTime(run.started_at)}</td>
-                    <td>${run.used_fallback ? '<i class="bi bi-exclamation-triangle text-warning"></i> Yes' : '<i class="bi bi-check-circle text-success"></i> No'}</td>
+                    <td>${run.used_fallback ? '<i class="bi bi-exclamation-triangle text-warning"></i>' : '<i class="bi bi-check-circle text-success"></i>'}</td>
                 </tr>
             `).join('');
         }

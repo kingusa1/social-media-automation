@@ -74,11 +74,12 @@ def deduplicate(
     # Filter to only new articles (not already in DB)
     new_articles = [a for a in unique_articles if a["url"] not in existing_urls]
 
-    # Insert articles one at a time so a single bad article can't break the batch.
-    # The pipeline_run was already committed, so rollbacks here are safe.
+    # Insert articles one at a time using savepoints so a single bad article
+    # doesn't invalidate the whole PostgreSQL transaction.
     inserted = 0
     for article in new_articles:
         try:
+            nested = db.begin_nested()  # savepoint
             db_article = Article(
                 project_id=project_id,
                 url=article["url"],
@@ -94,7 +95,7 @@ def deduplicate(
             inserted += 1
         except Exception as e:
             logger.debug(f"Failed to insert article '{article.get('title', '')[:40]}': {e}")
-            db.rollback()
+            nested.rollback()  # only rolls back this one article
 
     logger.info(
         f"Deduplication: {len(unique_articles)} unique, "

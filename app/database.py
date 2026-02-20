@@ -3,7 +3,7 @@ import json
 import logging
 from pathlib import Path
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base, Session
+from sqlalchemy.orm import sessionmaker, declarative_base
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -13,6 +13,12 @@ settings = get_settings()
 engine_kwargs = {"echo": False}
 if settings.DATABASE_URL.startswith("sqlite"):
     engine_kwargs["connect_args"] = {"check_same_thread": False}
+elif settings.DATABASE_URL.startswith("postgresql"):
+    # PostgreSQL pool settings optimised for Vercel serverless
+    engine_kwargs["pool_size"] = 3
+    engine_kwargs["max_overflow"] = 5
+    engine_kwargs["pool_recycle"] = 300  # recycle connections every 5 min
+    engine_kwargs["pool_pre_ping"] = True  # verify connections before use
 
 engine = create_engine(settings.DATABASE_URL, **engine_kwargs)
 
@@ -35,7 +41,10 @@ def init_db():
     from app.models import Project, Profile  # noqa: avoid circular import
     Base.metadata.create_all(bind=engine)
     seed_projects()
-    _restore_linkedin_tokens()
+    # Only restore LinkedIn tokens from env vars when using SQLite
+    # (PostgreSQL via Supabase persists tokens across cold starts)
+    if not settings.is_postgres:
+        _restore_linkedin_tokens()
 
 
 def seed_projects():
@@ -93,7 +102,7 @@ def seed_projects():
 
 
 def _restore_linkedin_tokens():
-    """Restore LinkedIn tokens from env vars after Vercel cold starts."""
+    """Restore LinkedIn tokens from env vars after Vercel cold starts (SQLite only)."""
     from app.models import Project
     from app.publishers.linkedin_auth import load_tokens_from_env
 

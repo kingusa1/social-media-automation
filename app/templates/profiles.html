@@ -3,7 +3,7 @@
 {% block title %}Profiles{% endblock %}
 
 {% block content %}
-<h3 class="mb-4"><i class="bi bi-person-badge me-2"></i>Social Media Profiles</h3>
+<h3 class="mb-3"><i class="bi bi-person-badge me-2"></i>Profiles</h3>
 
 {% raw %}
 <div id="profilesContainer" class="row g-3">
@@ -33,17 +33,15 @@ async function loadProfiles() {
 
         html += `<div class="col-12"><h5 class="text-${color}">${projectId.charAt(0).toUpperCase() + projectId.slice(1)}</h5></div>`;
 
-        // Single LinkedIn card per project
         html += `
-        <div class="col-md-8">
+        <div class="col-12 col-md-8">
             <div class="card">
-                <div class="card-header d-flex justify-content-between">
+                <div class="card-header d-flex justify-content-between align-items-center py-2">
                     <span><i class="bi bi-linkedin me-1"></i> LINKEDIN</span>
                     <span class="badge bg-${anyConnected ? 'success' : 'secondary'}">${anyConnected ? 'Connected' : 'Not Connected'}</span>
                 </div>
                 <div class="card-body">`;
 
-        // Show status for each sub-profile
         for (const p of linkedinProfiles) {
             const status = !p.has_token ? 'Not Connected'
                 : p.token_expires_at && new Date(p.token_expires_at) < new Date() ? 'Expired'
@@ -52,19 +50,19 @@ async function loadProfiles() {
             const icon = p.account_type === 'personal' ? 'person' : 'building';
 
             html += `
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span><i class="bi bi-${icon} me-1"></i> ${p.account_type.charAt(0).toUpperCase() + p.account_type.slice(1)}: ${p.platform_user_id || 'Auto-detected on connect'}</span>
-                        <span class="badge bg-${statusColor}">${status}${p.is_active ? '' : ' (inactive)'}</span>
+                    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-1">
+                        <span class="small"><i class="bi bi-${icon} me-1"></i> ${p.account_type.charAt(0).toUpperCase() + p.account_type.slice(1)}: ${p.platform_user_id || 'Auto-detected'}</span>
+                        <span class="badge bg-${statusColor}">${status}${p.is_active ? '' : ' (off)'}</span>
                     </div>`;
         }
 
         html += `
                     <hr>
                     <a href="/auth/linkedin/start?project_id=${projectId}"
-                       class="btn btn-${anyConnected ? 'outline-' : ''}primary">
+                       class="btn btn-${anyConnected ? 'outline-' : ''}primary w-100 w-md-auto">
                         <i class="bi bi-linkedin me-1"></i>${anyConnected ? 'Reconnect' : 'Connect'} LinkedIn
                     </a>
-                    <small class="text-muted ms-2">One connection handles both personal & organization</small>
+                    <small class="text-muted d-block mt-2">Auto-detects personal & organization</small>
                 </div>
             </div>
         </div>`;
@@ -75,8 +73,8 @@ async function loadProfiles() {
 
 // Check URL params for success/error messages
 const params = new URLSearchParams(window.location.search);
-if (params.get('success')) showToast('LinkedIn connected successfully! Personal & organization profiles auto-detected.', 'success');
-if (params.get('error')) showToast(`Error: ${decodeURIComponent(params.get('error'))}`, 'danger');
+if (params.get('success')) showToast('LinkedIn connected! Personal & organization profiles auto-detected.', 'success');
+if (params.get('error')) showToast('Error: ' + decodeURIComponent(params.get('error')), 'danger');
 
 loadProfiles();
 </script>

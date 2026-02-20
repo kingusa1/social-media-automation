@@ -3,8 +3,8 @@
 {% block title %}Content{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h3><i class="bi bi-file-text me-2"></i>Generated Content</h3>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3><i class="bi bi-file-text me-2"></i>Content</h3>
     <select class="form-select form-select-sm w-auto" id="filterProject">
         <option value="">All Projects</option>
         <option value="infiniteo">Infiniteo</option>
@@ -17,7 +17,7 @@
 </div>
 
 <nav class="mt-3">
-    <ul class="pagination justify-content-center" id="pagination"></ul>
+    <ul class="pagination pagination-sm justify-content-center" id="pagination"></ul>
 </nav>
 {% endblock %}
 
@@ -32,7 +32,7 @@ async function loadPosts() {
     const container = document.getElementById('postsContainer');
 
     if (data.posts.length === 0) {
-        container.innerHTML = '<div class="col-12 text-center text-muted">No posts generated yet. Trigger a pipeline run to get started.</div>';
+        container.innerHTML = '<div class="col-12 text-center text-muted">No posts generated yet. Tap "Run Now" on the Dashboard to get started.</div>';
         return;
     }
 
@@ -43,37 +43,46 @@ async function loadPosts() {
             `<span class="badge bg-${pr.status === 'success' ? 'success' : 'danger'} me-1">${pr.account_type}: ${pr.status}</span>`
         ).join('') || '<span class="badge bg-secondary">Not published</span>';
 
+        // Escape content for safe embedding
+        const escaped = post.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
         return `
-        <div class="col-md-6">
+        <div class="col-12 col-md-6">
             <div class="card h-100">
-                <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="card-header d-flex justify-content-between align-items-center py-2">
                     <div>
                         <i class="bi bi-${platformIcon} text-${platformColor} me-1"></i>
                         <strong>${post.platform.toUpperCase()}</strong>
-                        <span class="badge bg-${post.project_id === 'infiniteo' ? 'primary' : 'success'} ms-2">${post.project_id}</span>
+                        <span class="badge bg-${post.project_id === 'infiniteo' ? 'primary' : 'success'} ms-1">${post.project_id}</span>
                     </div>
                     <div>
                         ${post.is_fallback ? '<span class="badge bg-warning">Fallback</span>' : `<span class="badge bg-info">AI (${post.quality_score}%)</span>`}
                     </div>
                 </div>
-                <div class="card-body">
-                    <pre class="mb-2" style="white-space:pre-wrap;font-family:inherit;font-size:0.9rem">${post.content}</pre>
+                <div class="card-body p-2 p-md-3">
+                    <pre class="mb-2" style="white-space:pre-wrap;font-family:inherit;font-size:0.85rem">${escaped}</pre>
                     <hr>
-                    <small class="text-muted d-block mb-1">Source: <a href="${post.article_url}" target="_blank">${post.article_title || 'Article'}</a></small>
+                    <small class="text-muted d-block mb-1">Source: <a href="${post.article_url}" target="_blank">${(post.article_title || 'Article').substring(0, 50)}</a></small>
                     <small class="text-muted d-block mb-2">${formatTime(post.created_at)}</small>
                     <div>${publishStatus}</div>
                 </div>
-                <div class="card-footer">
-                    <button class="btn btn-sm btn-outline-secondary" onclick="copyText(this, \`${post.content.replace(/`/g, '\\`').replace(/\\/g, '\\\\')}\`)">
+                <div class="card-footer py-2">
+                    <button class="btn btn-sm btn-outline-secondary" data-post-id="${post.id}" onclick="copyPost(this)">
                         <i class="bi bi-clipboard me-1"></i>Copy
                     </button>
                 </div>
             </div>
         </div>`;
     }).join('');
+
+    // Store post contents for copying
+    window._postContents = {};
+    data.posts.forEach(p => window._postContents[p.id] = p.content);
 }
 
-function copyText(btn, text) {
+function copyPost(btn) {
+    const postId = btn.getAttribute('data-post-id');
+    const text = window._postContents[postId] || '';
     navigator.clipboard.writeText(text);
     btn.innerHTML = '<i class="bi bi-check me-1"></i>Copied!';
     setTimeout(() => btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy', 2000);
