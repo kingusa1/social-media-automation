@@ -1,9 +1,6 @@
 """Dashboard HTML page routes (Jinja2 rendered)."""
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy.orm import Session
-
-from app.database import get_db
 
 router = APIRouter()
 

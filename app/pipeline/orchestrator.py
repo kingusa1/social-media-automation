@@ -1,15 +1,14 @@
-"""Main pipeline orchestrator - coordinates all 16 steps of the content automation workflow.
+"""Main pipeline orchestrator - coordinates all steps of the content automation workflow.
 
-This is the core engine that replicates the full n8n workflow in Python.
-Each step is wrapped in error handling with logging to pipeline_run.log_details.
+Uses Google Sheets via SheetsDB for all data operations. Each write is immediately
+persisted (no commits/rollbacks), fixing the crash issues from the old DB approach.
 """
 import json
 import logging
 import traceback
 from datetime import datetime, timezone
-from sqlalchemy.orm import Session
 
-from app.models import Project, Article, PipelineRun, GeneratedPost, PublishResult, Profile
+from app.sheets_db import SheetsDB
 from app.pipeline.rss_fetcher import fetch_feeds
 from app.pipeline.url_resolver import resolve_urls
 from app.pipeline.deduplicator import deduplicate
@@ -23,24 +22,10 @@ from app.pipeline.fallback_templates import generate_fallback_posts
 logger = logging.getLogger(__name__)
 
 
-def run_pipeline(project_id: str, trigger_type: str, db: Session) -> PipelineRun:
+def run_pipeline(project_id: str, trigger_type: str, db: SheetsDB) -> dict:
     """Execute the full content automation pipeline for a project.
 
-    Steps:
-    1. Load project config
-    2. Create pipeline_run record
-    3. Fetch RSS feeds in parallel
-    4. Resolve Google News redirect URLs
-    5. Deduplicate against DB
-    6. Score articles for relevance
-    7. Select best article
-    8. Fetch full article content
-    9. Extract clean text
-    10. Generate posts via AI
-    11. Parse AI output
-    12. Validate post quality
-    13-15. Publish to social media
-    16. Finalize and log
+    Returns a dict (pipeline run record) with status, articles_fetched, etc.
     """
     log_entries = []
 
@@ -55,67 +40,67 @@ def run_pipeline(project_id: str, trigger_type: str, db: Session) -> PipelineRun
         level = {"success": logging.INFO, "warning": logging.WARNING, "error": logging.ERROR}.get(status, logging.INFO)
         logger.log(level, f"[{project_id}] {step}: {message}")
 
+    def _save_run(run_id: int, updates: dict):
+        """Save log_entries + any status updates to the run."""
+        updates["log_details"] = json.dumps(log_entries)
+        try:
+            db.update_pipeline_run(run_id, updates)
+        except Exception as e:
+            logger.error(f"Failed to update pipeline run {run_id}: {e}")
+
     # --- Step 1: Load project config ---
-    project = db.query(Project).filter(Project.id == project_id, Project.is_active == True).first()
-    if not project:
-        logger.error(f"Project {project_id} not found or inactive")
+    project = db.get_project(project_id)
+    if not project or not project["is_active"]:
         raise ValueError(f"Project {project_id} not found or inactive")
 
-    rss_feeds = json.loads(project.rss_feeds)
-    scoring_weights = json.loads(project.scoring_weights)
-    hashtags = json.loads(project.hashtags)
+    rss_feeds = project["rss_feeds"]
+    scoring_weights = project["scoring_weights"]
+    hashtags = project["hashtags"]
 
-    # --- Step 2: Create pipeline_run record ---
-    # Commit immediately so no rollback in later steps can wipe this record.
-    pipeline_run = PipelineRun(
-        project_id=project_id,
-        trigger_type=trigger_type,
-        status="running",
-        started_at=datetime.now(timezone.utc),
-    )
-    db.add(pipeline_run)
-    db.commit()
-    db.refresh(pipeline_run)
-    log_step("init", "success", f"Pipeline started for {project.display_name} ({trigger_type})")
+    # --- Step 2: Create pipeline_run record (immediately persisted) ---
+    run_id = db.insert_pipeline_run({
+        "project_id": project_id,
+        "trigger_type": trigger_type,
+        "status": "running",
+    })
+    log_step("init", "success", f"Pipeline started for {project['display_name']} ({trigger_type})")
 
     try:
         # --- Step 3: Fetch RSS feeds ---
         try:
             raw_articles = fetch_feeds(rss_feeds)
-            pipeline_run.articles_fetched = len(raw_articles)
+            _save_run(run_id, {"articles_fetched": len(raw_articles)})
             log_step("rss_fetch", "success", f"Fetched {len(raw_articles)} articles from {len(rss_feeds)} feeds")
         except Exception as e:
             log_step("rss_fetch", "error", f"RSS fetch failed: {e}")
             raw_articles = []
 
         if not raw_articles:
-            # Try to use a recent unselected article from DB
-            fallback_article = _get_fallback_article(project_id, db)
+            fallback_article = db.get_fallback_article(project_id)
             if fallback_article:
                 log_step("rss_fetch", "warning", "No new articles from RSS, using recent DB article as fallback")
                 raw_articles = [_article_to_dict(fallback_article)]
             else:
                 log_step("rss_fetch", "error", "No articles available from any source")
-                pipeline_run.status = "failed"
-                pipeline_run.error_message = "No articles available"
-                pipeline_run.completed_at = datetime.now(timezone.utc)
-                pipeline_run.log_details = json.dumps(log_entries)
-                db.commit()
-                return pipeline_run
+                _save_run(run_id, {
+                    "status": "failed",
+                    "error_message": "No articles available",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                })
+                return db.get_pipeline_run(run_id)
 
-        # --- Step 4: Resolve Google News URLs (deferred to after selection for speed) ---
-        log_step("url_resolve", "success", "URL resolution deferred to selected article only (speed optimization)")
+        # --- Step 4: URL resolution deferred ---
+        log_step("url_resolve", "success", "URL resolution deferred to selected article only")
 
         # --- Step 5: Deduplicate ---
         try:
-            new_articles = deduplicate(raw_articles, project_id, pipeline_run.id, db)
-            pipeline_run.articles_new = len(new_articles)
-            log_step("dedup", "success", f"{len(new_articles)} new articles, {len(raw_articles) - len(new_articles)} duplicates removed")
+            new_articles = deduplicate(raw_articles, project_id, run_id, db)
+            _save_run(run_id, {"articles_new": len(new_articles)})
+            log_step("dedup", "success", f"{len(new_articles)} new, {len(raw_articles) - len(new_articles)} duplicates removed")
         except Exception as e:
-            log_step("dedup", "warning", f"Dedup error (using all articles): {e}")
+            log_step("dedup", "warning", f"Dedup error (using all): {e}")
             new_articles = raw_articles
 
-        # If no new articles, use the raw articles (allow re-processing)
         articles_to_score = new_articles if new_articles else raw_articles
 
         # --- Step 6: Score articles ---
@@ -130,12 +115,12 @@ def run_pipeline(project_id: str, trigger_type: str, db: Session) -> PipelineRun
         best_article = select_best(scored_articles)
         if not best_article:
             log_step("selection", "error", "No article could be selected")
-            pipeline_run.status = "failed"
-            pipeline_run.error_message = "No article selected"
-            pipeline_run.completed_at = datetime.now(timezone.utc)
-            pipeline_run.log_details = json.dumps(log_entries)
-            db.commit()
-            return pipeline_run
+            _save_run(run_id, {
+                "status": "failed",
+                "error_message": "No article selected",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            })
+            return db.get_pipeline_run(run_id)
 
         article_title = best_article.get("title", "Industry Update")
         article_url = best_article.get("url", "")
@@ -143,7 +128,7 @@ def run_pipeline(project_id: str, trigger_type: str, db: Session) -> PipelineRun
         article_score = best_article.get("relevance_score", 0)
         log_step("selection", "success", f"Selected: '{article_title[:80]}' (score: {article_score})")
 
-        # --- Step 4b: Resolve URL only for the selected article ---
+        # --- Step 4b: Resolve URL only for selected article ---
         try:
             resolved = resolve_urls([best_article])
             if resolved and resolved[0].get("url") != article_url:
@@ -152,25 +137,22 @@ def run_pipeline(project_id: str, trigger_type: str, db: Session) -> PipelineRun
         except Exception as e:
             log_step("url_resolve", "warning", f"URL resolution skipped: {e}")
 
-        # Mark as selected in DB
-        db_article = db.query(Article).filter(
-            Article.project_id == project_id,
-            Article.url == article_url,
-        ).first()
+        # Mark as selected in sheets
+        db_article = db.get_article_by_url(project_id, article_url)
         if db_article:
-            db_article.was_selected = True
-            db_article.relevance_score = article_score
-            pipeline_run.selected_article_id = db_article.id
+            db.update_article(db_article["id"], {
+                "was_selected": True,
+                "relevance_score": article_score,
+            })
+            _save_run(run_id, {"selected_article_id": db_article["id"]})
 
         # --- Step 8 & 9: Fetch full article + extract text ---
         try:
             article_content = extract_article_content(
-                url=article_url,
-                title=article_title,
-                summary=article_summary,
+                url=article_url, title=article_title, summary=article_summary,
             )
             if db_article:
-                db_article.content_text = article_content.text
+                db.update_article(db_article["id"], {"content_text": article_content.text})
             log_step("content_extract", "success",
                      f"Extracted {article_content.word_count} words via {article_content.extraction_method}")
         except Exception as e:
@@ -184,6 +166,7 @@ def run_pipeline(project_id: str, trigger_type: str, db: Session) -> PipelineRun
         twitter_post = ""
         used_fallback = False
         ai_model = ""
+        quality_score = 0.0
 
         try:
             ai_result = generate_posts(
@@ -191,14 +174,13 @@ def run_pipeline(project_id: str, trigger_type: str, db: Session) -> PipelineRun
                 article_url=article_url,
                 article_description=article_summary,
                 article_content=content_text,
-                brand_voice=project.brand_voice,
+                brand_voice=project["brand_voice"],
             )
             if ai_result:
                 ai_model = ai_result.model_used
-                pipeline_run.ai_model_used = ai_model
+                _save_run(run_id, {"ai_model_used": ai_model})
                 log_step("ai_generation", "success", f"Content generated using model: {ai_model}")
 
-                # --- Step 11: Parse AI output ---
                 parsed = parse_ai_output(ai_result.raw_output)
                 linkedin_post = parsed.linkedin_post
                 twitter_post = parsed.twitter_post
@@ -213,6 +195,7 @@ def run_pipeline(project_id: str, trigger_type: str, db: Session) -> PipelineRun
         if linkedin_post or twitter_post:
             try:
                 validation = validate_posts(linkedin_post, twitter_post, hashtags)
+                quality_score = validation.quality_score
                 if validation.is_valid and validation.quality_score >= 70:
                     log_step("validation", "success", f"Posts valid (score: {validation.quality_score})")
                 else:
@@ -233,109 +216,95 @@ def run_pipeline(project_id: str, trigger_type: str, db: Session) -> PipelineRun
                     project_id=project_id,
                 )
                 used_fallback = True
-                pipeline_run.used_fallback = True
+                quality_score = 50.0
+                _save_run(run_id, {"used_fallback": True})
                 log_step("fallback", "success", "Generated fallback template posts")
             except Exception as e:
                 log_step("fallback", "error", f"Fallback generation failed: {e}")
-                pipeline_run.status = "failed"
-                pipeline_run.error_message = "Both AI and fallback post generation failed"
-                pipeline_run.completed_at = datetime.now(timezone.utc)
-                pipeline_run.log_details = json.dumps(log_entries)
-                db.commit()
-                return pipeline_run
+                _save_run(run_id, {
+                    "status": "failed",
+                    "error_message": "Both AI and fallback post generation failed",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                })
+                return db.get_pipeline_run(run_id)
 
-        # Save generated posts to DB
-        li_post_record = GeneratedPost(
-            pipeline_run_id=pipeline_run.id,
-            project_id=project_id,
-            platform="linkedin",
-            content=linkedin_post,
-            article_url=article_url,
-            article_title=article_title,
-            is_fallback=used_fallback,
-            quality_score=validation.quality_score if not used_fallback else 50.0,
-        )
-        tw_post_record = GeneratedPost(
-            pipeline_run_id=pipeline_run.id,
-            project_id=project_id,
-            platform="twitter",
-            content=twitter_post,
-            article_url=article_url,
-            article_title=article_title,
-            is_fallback=used_fallback,
-            quality_score=validation.quality_score if not used_fallback else 50.0,
-        )
-        db.add(li_post_record)
-        db.add(tw_post_record)
-        db.flush()
+        # Save generated posts
+        li_post_id = db.insert_generated_post({
+            "pipeline_run_id": run_id,
+            "project_id": project_id,
+            "platform": "linkedin",
+            "content": linkedin_post,
+            "article_url": article_url,
+            "article_title": article_title,
+            "is_fallback": used_fallback,
+            "quality_score": quality_score,
+        })
+        tw_post_id = db.insert_generated_post({
+            "pipeline_run_id": run_id,
+            "project_id": project_id,
+            "platform": "twitter",
+            "content": twitter_post,
+            "article_url": article_url,
+            "article_title": article_title,
+            "is_fallback": used_fallback,
+            "quality_score": quality_score,
+        })
 
         # --- Steps 14-15: Publish to social media ---
         publish_success = 0
         publish_fail = 0
 
-        # Publish LinkedIn posts
-        linkedin_profiles = (
-            db.query(Profile)
-            .filter(
-                Profile.project_id == project_id,
-                Profile.platform == "linkedin",
-                Profile.is_active == True,
-            )
-            .all()
-        )
-
+        # Publish LinkedIn
+        linkedin_profiles = db.get_active_profiles(project_id, "linkedin")
         for profile in linkedin_profiles:
             try:
                 from app.publishers.linkedin_publisher import publish_to_linkedin
                 result = publish_to_linkedin(linkedin_post, profile)
-                pub_result = PublishResult(
-                    generated_post_id=li_post_record.id,
-                    profile_id=profile.id,
-                    platform="linkedin",
-                    account_type=profile.account_type,
-                    status="success" if result.get("success") else "failed",
-                    platform_post_id=result.get("post_id", ""),
-                    error_message=result.get("error", ""),
-                    posted_at=datetime.now(timezone.utc) if result.get("success") else None,
-                )
-                db.add(pub_result)
+                db.insert_publish_result({
+                    "generated_post_id": li_post_id,
+                    "profile_id": profile["id"],
+                    "platform": "linkedin",
+                    "account_type": profile["account_type"],
+                    "status": "success" if result.get("success") else "failed",
+                    "platform_post_id": result.get("post_id", ""),
+                    "error_message": result.get("error", ""),
+                    "posted_at": datetime.now(timezone.utc).isoformat() if result.get("success") else "",
+                })
                 if result.get("success"):
                     publish_success += 1
-                    log_step(f"linkedin_{profile.account_type}", "success",
-                             f"Posted to LinkedIn {profile.account_type}")
+                    log_step(f"linkedin_{profile['account_type']}", "success",
+                             f"Posted to LinkedIn {profile['account_type']}")
                 else:
                     publish_fail += 1
-                    log_step(f"linkedin_{profile.account_type}", "error",
-                             f"LinkedIn {profile.account_type} failed: {result.get('error', 'Unknown')}")
+                    log_step(f"linkedin_{profile['account_type']}", "error",
+                             f"LinkedIn {profile['account_type']} failed: {result.get('error', 'Unknown')}")
             except Exception as e:
                 publish_fail += 1
-                pub_result = PublishResult(
-                    generated_post_id=li_post_record.id,
-                    profile_id=profile.id,
-                    platform="linkedin",
-                    account_type=profile.account_type,
-                    status="failed",
-                    error_message=str(e),
-                )
-                db.add(pub_result)
-                log_step(f"linkedin_{profile.account_type}", "error", f"LinkedIn error: {e}")
+                db.insert_publish_result({
+                    "generated_post_id": li_post_id,
+                    "profile_id": profile["id"],
+                    "platform": "linkedin",
+                    "account_type": profile["account_type"],
+                    "status": "failed",
+                    "error_message": str(e),
+                })
+                log_step(f"linkedin_{profile['account_type']}", "error", f"LinkedIn error: {e}")
 
-        # Publish Twitter posts (if enabled)
-        if project.twitter_enabled:
+        # Publish Twitter (if enabled)
+        if project["twitter_enabled"]:
             try:
                 from app.publishers.twitter_publisher import publish_to_twitter
                 result = publish_to_twitter(twitter_post, project_id)
-                pub_result = PublishResult(
-                    generated_post_id=tw_post_record.id,
-                    profile_id=0,
-                    platform="twitter",
-                    account_type="personal",
-                    status="success" if result.get("success") else "failed",
-                    platform_post_id=result.get("tweet_id", ""),
-                    error_message=result.get("error", ""),
-                    posted_at=datetime.now(timezone.utc) if result.get("success") else None,
-                )
-                db.add(pub_result)
+                db.insert_publish_result({
+                    "generated_post_id": tw_post_id,
+                    "profile_id": 0,
+                    "platform": "twitter",
+                    "account_type": "personal",
+                    "status": "success" if result.get("success") else "failed",
+                    "platform_post_id": result.get("tweet_id", ""),
+                    "error_message": result.get("error", ""),
+                    "posted_at": datetime.now(timezone.utc).isoformat() if result.get("success") else "",
+                })
                 if result.get("success"):
                     publish_success += 1
                     log_step("twitter", "success", "Posted to Twitter")
@@ -349,59 +318,43 @@ def run_pipeline(project_id: str, trigger_type: str, db: Session) -> PipelineRun
             log_step("twitter", "success", "Twitter posting disabled - skipped")
 
         if not linkedin_profiles:
-            log_step("publishing", "warning", "No active LinkedIn profiles configured - posts saved but not published")
+            log_step("publishing", "warning", "No active LinkedIn profiles - posts saved but not published")
 
         # --- Step 16: Finalize ---
         if publish_fail > 0 and publish_success > 0:
-            pipeline_run.status = "partial_failure"
+            final_status = "partial_failure"
         elif publish_fail > 0 and publish_success == 0 and linkedin_profiles:
-            pipeline_run.status = "failed"
-            pipeline_run.error_message = "All publish attempts failed"
+            final_status = "failed"
         else:
-            pipeline_run.status = "success"
+            final_status = "success"
 
-        pipeline_run.completed_at = datetime.now(timezone.utc)
-        pipeline_run.log_details = json.dumps(log_entries)
+        _save_run(run_id, {
+            "status": final_status,
+            "error_message": "All publish attempts failed" if final_status == "failed" else "",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        })
         log_step("finalize", "success",
-                 f"Pipeline complete: {pipeline_run.status} "
-                 f"(published: {publish_success}, failed: {publish_fail})")
+                 f"Pipeline complete: {final_status} (published: {publish_success}, failed: {publish_fail})")
 
-        db.commit()
-        return pipeline_run
+        return db.get_pipeline_run(run_id)
 
     except Exception as e:
         log_step("fatal", "error", f"Unhandled error: {traceback.format_exc()}")
-        pipeline_run.status = "failed"
-        pipeline_run.error_message = str(e)
-        pipeline_run.completed_at = datetime.now(timezone.utc)
-        pipeline_run.log_details = json.dumps(log_entries)
-        try:
-            db.commit()
-        except Exception:
-            db.rollback()
-        return pipeline_run
+        _save_run(run_id, {
+            "status": "failed",
+            "error_message": str(e)[:500],
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return db.get_pipeline_run(run_id)
 
 
-def _get_fallback_article(project_id: str, db: Session):
-    """Get a recent unselected article from the DB as fallback."""
-    return (
-        db.query(Article)
-        .filter(
-            Article.project_id == project_id,
-            Article.was_selected == False,
-        )
-        .order_by(Article.created_at.desc())
-        .first()
-    )
-
-
-def _article_to_dict(article: Article) -> dict:
-    """Convert an Article ORM model to a dict matching RawArticle format."""
+def _article_to_dict(article: dict) -> dict:
+    """Convert a Sheets article dict to the RawArticle format expected by the pipeline."""
     return {
-        "url": article.url,
-        "original_url": article.original_url or article.url,
-        "title": article.title,
-        "summary": article.summary or "",
-        "published_at": article.published_at.isoformat() if article.published_at else None,
-        "source_feed": article.source_feed,
+        "url": article.get("url", ""),
+        "original_url": article.get("original_url", "") or article.get("url", ""),
+        "title": article.get("title", ""),
+        "summary": article.get("summary", ""),
+        "published_at": article.get("published_at"),
+        "source_feed": article.get("source_feed", ""),
     }

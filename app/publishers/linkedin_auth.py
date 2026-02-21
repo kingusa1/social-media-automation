@@ -4,9 +4,9 @@ import os
 import urllib.parse
 from datetime import datetime, timezone, timedelta
 import requests
-from sqlalchemy.orm import Session
+
 from app.config import get_settings
-from app.models import Profile
+from app.sheets_db import SheetsDB
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,6 @@ def get_authorization_url(project_id: str) -> str:
     """Generate LinkedIn OAuth2 authorization URL with all scopes."""
     settings = get_settings()
 
-    # Request ALL scopes so one connection handles personal + organization
     scopes = (
         "openid profile email "
         "w_member_social "
@@ -28,7 +27,7 @@ def get_authorization_url(project_id: str) -> str:
         "rw_organization_admin r_organization_admin"
     )
 
-    state = project_id  # Just project_id, we handle both account types
+    state = project_id
 
     params = {
         "response_type": "code",
@@ -41,7 +40,7 @@ def get_authorization_url(project_id: str) -> str:
     return f"{LINKEDIN_AUTH_URL}?{urllib.parse.urlencode(params)}"
 
 
-def exchange_code_for_token(code: str, project_id: str, db: Session) -> dict:
+def exchange_code_for_token(code: str, project_id: str, db: SheetsDB) -> dict:
     """Exchange authorization code for tokens. Auto-detects personal + org profiles."""
     settings = get_settings()
 
@@ -60,56 +59,42 @@ def exchange_code_for_token(code: str, project_id: str, db: Session) -> dict:
 
         access_token = token_data.get("access_token", "")
         refresh_token = token_data.get("refresh_token", "")
-        expires_in = token_data.get("expires_in", 5184000)  # Default 60 days
+        expires_in = token_data.get("expires_in", 5184000)
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
         # --- Auto-detect personal user ID ---
         user_id = _get_user_id(access_token)
 
         # --- Update personal profile ---
-        personal_profile = (
-            db.query(Profile)
-            .filter(
-                Profile.project_id == project_id,
-                Profile.platform == "linkedin",
-                Profile.account_type == "personal",
-            )
-            .first()
-        )
+        personal_profile = db.get_profile_by_keys(project_id, "linkedin", "personal")
         if personal_profile:
-            personal_profile.access_token = access_token
-            personal_profile.refresh_token = refresh_token
-            personal_profile.token_expires_at = expires_at
-            if user_id:
-                personal_profile.platform_user_id = user_id
-            personal_profile.is_active = bool(user_id)
+            db.update_profile(personal_profile["id"], {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "token_expires_at": expires_at,
+                "platform_user_id": user_id if user_id else personal_profile["platform_user_id"],
+                "is_active": bool(user_id),
+            })
 
         # --- Auto-detect organizations ---
         org_ids = _get_admin_organizations(access_token)
 
-        org_profile = (
-            db.query(Profile)
-            .filter(
-                Profile.project_id == project_id,
-                Profile.platform == "linkedin",
-                Profile.account_type == "organization",
-            )
-            .first()
-        )
+        org_profile = db.get_profile_by_keys(project_id, "linkedin", "organization")
         if org_profile and org_ids:
-            org_profile.access_token = access_token
-            org_profile.refresh_token = refresh_token
-            org_profile.token_expires_at = expires_at
-            org_profile.platform_user_id = org_ids[0]  # Use first org
-            org_profile.is_active = True
+            db.update_profile(org_profile["id"], {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "token_expires_at": expires_at,
+                "platform_user_id": org_ids[0],
+                "is_active": True,
+            })
         elif org_profile and not org_ids:
-            # No orgs found - still save token, mark inactive
-            org_profile.access_token = access_token
-            org_profile.refresh_token = refresh_token
-            org_profile.token_expires_at = expires_at
-            org_profile.is_active = False
-
-        db.commit()
+            db.update_profile(org_profile["id"], {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "token_expires_at": expires_at,
+                "is_active": False,
+            })
 
         # Save tokens as Vercel env vars for persistence across cold starts
         if settings.is_vercel:
@@ -128,17 +113,17 @@ def exchange_code_for_token(code: str, project_id: str, db: Session) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def refresh_access_token(profile: Profile, db: Session) -> bool:
+def refresh_access_token(profile: dict, db: SheetsDB) -> bool:
     """Refresh an expired LinkedIn access token."""
     settings = get_settings()
 
-    if not profile.refresh_token:
-        logger.warning(f"No refresh token for profile {profile.id}")
+    if not profile.get("refresh_token"):
+        logger.warning(f"No refresh token for profile {profile['id']}")
         return False
 
     data = {
         "grant_type": "refresh_token",
-        "refresh_token": profile.refresh_token,
+        "refresh_token": profile["refresh_token"],
         "client_id": settings.LINKEDIN_CLIENT_ID,
         "client_secret": settings.LINKEDIN_CLIENT_SECRET,
     }
@@ -148,35 +133,43 @@ def refresh_access_token(profile: Profile, db: Session) -> bool:
         resp.raise_for_status()
         token_data = resp.json()
 
-        profile.access_token = token_data.get("access_token", "")
+        updates = {
+            "access_token": token_data.get("access_token", ""),
+        }
         if token_data.get("refresh_token"):
-            profile.refresh_token = token_data["refresh_token"]
+            updates["refresh_token"] = token_data["refresh_token"]
         expires_in = token_data.get("expires_in", 5184000)
-        profile.token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-        db.commit()
-        logger.info(f"Token refreshed for profile {profile.id}")
+        updates["token_expires_at"] = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+
+        db.update_profile(profile["id"], updates)
+        logger.info(f"Token refreshed for profile {profile['id']}")
         return True
 
     except Exception as e:
-        logger.error(f"Token refresh failed for profile {profile.id}: {e}")
+        logger.error(f"Token refresh failed for profile {profile['id']}: {e}")
         return False
 
 
-def ensure_valid_token(profile: Profile, db: Session) -> bool:
+def ensure_valid_token(profile: dict, db: SheetsDB) -> bool:
     """Check if token is valid, refresh if expiring within 7 days."""
-    if not profile.access_token:
+    if not profile.get("access_token"):
         return False
 
-    if profile.token_expires_at:
-        days_until_expiry = (profile.token_expires_at - datetime.now(timezone.utc)).days
-        if days_until_expiry < 7:
-            return refresh_access_token(profile, db)
+    if profile.get("token_expires_at"):
+        expires_at = profile["token_expires_at"]
+        if isinstance(expires_at, str):
+            from app.sheets_db import _parse_dt
+            expires_at = _parse_dt(expires_at)
+        if expires_at:
+            days_until_expiry = (expires_at - datetime.now(timezone.utc)).days
+            if days_until_expiry < 7:
+                return refresh_access_token(profile, db)
 
     return True
 
 
-def load_tokens_from_env(project_id: str, db: Session):
-    """Load LinkedIn tokens from environment variables into DB profiles.
+def load_tokens_from_env(project_id: str, db: SheetsDB):
+    """Load LinkedIn tokens from environment variables into Sheets profiles.
 
     Called during seed/startup to restore tokens after Vercel cold starts.
     """
@@ -192,38 +185,24 @@ def load_tokens_from_env(project_id: str, db: Session):
     logger.info(f"Loading LinkedIn tokens from env vars for {project_id}")
 
     # Update personal profile
-    personal = (
-        db.query(Profile)
-        .filter(
-            Profile.project_id == project_id,
-            Profile.platform == "linkedin",
-            Profile.account_type == "personal",
-        )
-        .first()
-    )
+    personal = db.get_profile_by_keys(project_id, "linkedin", "personal")
     if personal and user_id:
-        personal.access_token = access_token
-        personal.refresh_token = refresh_token
-        personal.platform_user_id = user_id
-        personal.is_active = True
+        db.update_profile(personal["id"], {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "platform_user_id": user_id,
+            "is_active": True,
+        })
 
     # Update org profile
-    org = (
-        db.query(Profile)
-        .filter(
-            Profile.project_id == project_id,
-            Profile.platform == "linkedin",
-            Profile.account_type == "organization",
-        )
-        .first()
-    )
+    org = db.get_profile_by_keys(project_id, "linkedin", "organization")
     if org and org_id:
-        org.access_token = access_token
-        org.refresh_token = refresh_token
-        org.platform_user_id = org_id
-        org.is_active = True
-
-    db.commit()
+        db.update_profile(org["id"], {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "platform_user_id": org_id,
+            "is_active": True,
+        })
 
 
 def _get_user_id(access_token: str) -> str:
@@ -255,7 +234,6 @@ def _get_admin_organizations(access_token: str) -> list[str]:
             org_ids = []
             for elem in data.get("elements", []):
                 org_urn = elem.get("organization", "")
-                # Extract org ID from URN like "urn:li:organization:12345"
                 if org_urn:
                     org_id = org_urn.split(":")[-1]
                     org_ids.append(org_id)
@@ -275,7 +253,7 @@ def _save_tokens_to_env(project_id: str, access_token: str, refresh_token: str,
     settings = get_settings()
 
     if not settings.VERCEL_TOKEN or not settings.VERCEL_PROJECT_ID:
-        logger.info("VERCEL_TOKEN/VERCEL_PROJECT_ID not set - tokens saved to DB only")
+        logger.info("VERCEL_TOKEN/VERCEL_PROJECT_ID not set - tokens saved to Sheets only")
         return
 
     prefix = f"LINKEDIN_{project_id.upper()}"

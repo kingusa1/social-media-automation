@@ -2,29 +2,21 @@
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
 scheduler = BackgroundScheduler(timezone="UTC")
-_session_factory = None
 
 
-def init_scheduler(session_factory):
-    """Initialize the scheduler and load project schedules from DB."""
-    global _session_factory
-    _session_factory = session_factory
+def init_scheduler():
+    """Initialize the scheduler and load project schedules from Sheets."""
+    from app.sheets_db import SheetsDB
 
-    from app.models import Project
-
-    db = session_factory()
-    try:
-        projects = db.query(Project).filter(Project.is_active == True).all()
-        for project in projects:
-            add_project_schedule(project.id, project.schedule_cron)
-        logger.info(f"Scheduler initialized with {len(projects)} project schedules")
-    finally:
-        db.close()
+    db = SheetsDB()
+    projects = db.get_active_projects()
+    for project in projects:
+        add_project_schedule(project["id"], project["schedule_cron"])
+    logger.info(f"Scheduler initialized with {len(projects)} project schedules")
 
 
 def add_project_schedule(project_id: str, cron_expression: str):
@@ -37,7 +29,6 @@ def add_project_schedule(project_id: str, cron_expression: str):
         logger.error(f"Invalid cron expression '{cron_expression}' for {project_id}: {e}")
         return
 
-    # Remove existing job if present
     existing = scheduler.get_job(job_id)
     if existing:
         scheduler.remove_job(job_id)
@@ -115,20 +106,13 @@ def shutdown():
 
 
 def _run_pipeline_job(project_id: str):
-    """Wrapper that creates a DB session and runs the pipeline.
-
-    This runs in a background thread managed by APScheduler.
-    """
-    if not _session_factory:
-        logger.error("Session factory not initialized")
-        return
-
-    db = _session_factory()
+    """Wrapper that creates a SheetsDB and runs the pipeline."""
     try:
+        from app.sheets_db import SheetsDB
         from app.pipeline.orchestrator import run_pipeline
+
+        db = SheetsDB()
         result = run_pipeline(project_id, trigger_type="scheduled", db=db)
-        logger.info(f"Scheduled pipeline for {project_id} completed: {result.status}")
+        logger.info(f"Scheduled pipeline for {project_id} completed: {result['status']}")
     except Exception as e:
         logger.error(f"Scheduled pipeline for {project_id} failed: {e}")
-    finally:
-        db.close()

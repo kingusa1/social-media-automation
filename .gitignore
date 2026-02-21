@@ -38,6 +38,11 @@ Thumbs.db
 # Claude
 .claude/
 
+# Google credentials
+service_account.json
+*-credentials.json
+*-fee219f692b9.json
+
 # Misc
 nul
 

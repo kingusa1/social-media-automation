@@ -1,9 +1,8 @@
-"""Deduplicate articles against the database to avoid processing the same article twice."""
+"""Deduplicate articles against Google Sheets to avoid processing the same article twice."""
 import logging
-from datetime import datetime, timezone
 from urllib.parse import urlparse, urlencode, parse_qs
-from sqlalchemy.orm import Session
-from app.models import Article
+
+from app.sheets_db import SheetsDB
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +37,9 @@ def deduplicate(
     articles: list[dict],
     project_id: str,
     pipeline_run_id: int,
-    db: Session,
+    db: SheetsDB,
 ) -> list[dict]:
-    """Check articles against DB, insert new ones, return only unseen articles."""
+    """Check articles against Sheets, insert new ones, return only unseen articles."""
     if not articles:
         return []
 
@@ -56,71 +55,39 @@ def deduplicate(
             seen_urls.add(article["url"])
             unique_articles.append(article)
 
-    # Check which URLs already exist in DB
+    # Check which URLs already exist in Sheets
     urls = [a["url"] for a in unique_articles]
-    existing_urls = set()
+    existing_urls = db.get_existing_article_urls(project_id, urls)
 
-    # Query in batches to avoid SQLite variable limit
-    batch_size = 500
-    for i in range(0, len(urls), batch_size):
-        batch = urls[i : i + batch_size]
-        results = (
-            db.query(Article.url)
-            .filter(Article.project_id == project_id, Article.url.in_(batch))
-            .all()
-        )
-        existing_urls.update(r[0] for r in results)
-
-    # Filter to only new articles (not already in DB)
+    # Filter to only new articles (not already in Sheets)
     new_articles = [a for a in unique_articles if a["url"] not in existing_urls]
 
-    # Insert articles one at a time using savepoints so a single bad article
-    # doesn't invalidate the whole PostgreSQL transaction.
-    inserted = 0
-    for article in new_articles:
+    # Batch insert all new articles at once
+    if new_articles:
+        articles_data = []
+        for article in new_articles:
+            articles_data.append({
+                "project_id": project_id,
+                "url": article["url"],
+                "original_url": article.get("original_url", article["url"]),
+                "title": (article.get("title", "") or "")[:500],
+                "source_feed": (article.get("source_feed", "") or "")[:200],
+                "summary": (article.get("summary", "") or "")[:2000],
+                "published_at": article.get("published_at", ""),
+                "fetch_run_id": pipeline_run_id,
+            })
         try:
-            nested = db.begin_nested()  # savepoint
-            db_article = Article(
-                project_id=project_id,
-                url=article["url"],
-                original_url=article.get("original_url", article["url"]),
-                title=(article.get("title", "") or "")[:500],
-                source_feed=(article.get("source_feed", "") or "")[:200],
-                summary=(article.get("summary", "") or "")[:2000],
-                published_at=_parse_datetime(article.get("published_at")),
-                fetch_run_id=pipeline_run_id,
-            )
-            db.add(db_article)
-            db.flush()
-            inserted += 1
+            db.insert_articles_batch(articles_data)
         except Exception as e:
-            logger.debug(f"Failed to insert article '{article.get('title', '')[:40]}': {e}")
-            nested.rollback()  # only rolls back this one article
+            logger.warning(f"Batch insert failed, inserting one by one: {e}")
+            for data in articles_data:
+                try:
+                    db.insert_article(data)
+                except Exception as e2:
+                    logger.debug(f"Failed to insert article '{data.get('title', '')[:40]}': {e2}")
 
     logger.info(
         f"Deduplication: {len(unique_articles)} unique, "
-        f"{len(existing_urls)} already seen, {len(new_articles)} new, {inserted} inserted"
+        f"{len(existing_urls)} already seen, {len(new_articles)} new"
     )
     return new_articles
-
-
-def _parse_datetime(val):
-    """Convert ISO string or other date format to datetime object for SQLite."""
-    if val is None:
-        return None
-    if isinstance(val, datetime):
-        return val
-    if isinstance(val, str):
-        for fmt in [
-            "%Y-%m-%dT%H:%M:%S%z",
-            "%Y-%m-%dT%H:%M:%S.%f%z",
-            "%Y-%m-%dT%H:%M:%SZ",
-            "%Y-%m-%dT%H:%M:%S.%fZ",
-            "%a, %d %b %Y %H:%M:%S %z",
-            "%a, %d %b %Y %H:%M:%S %Z",
-        ]:
-            try:
-                return datetime.strptime(val, fmt)
-            except ValueError:
-                continue
-    return None

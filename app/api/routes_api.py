@@ -3,19 +3,14 @@ import json
 import logging
 import threading
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.config import get_settings
-from app.database import get_db
+from app.sheets_db import SheetsDB, get_sheets_db
 
 logger = logging.getLogger(__name__)
-from app.models import Project, Profile, PipelineRun, GeneratedPost, PublishResult, Article
 from app.schemas import (
-    ProjectResponse, ProjectUpdate, ProfileResponse, ProfileUpdate,
-    ManualTriggerRequest, DashboardOverview, MetricsResponse,
-    PipelineRunResponse, GeneratedPostResponse, ArticleResponse,
+    ProjectUpdate, ProfileUpdate, ManualTriggerRequest,
 )
 from app.scheduler.scheduler import (
     get_all_jobs, get_next_run_time, add_project_schedule,
@@ -28,67 +23,56 @@ router = APIRouter()
 # ========== Dashboard Overview ==========
 
 @router.get("/overview")
-def get_overview(db: Session = Depends(get_db)):
+def get_overview(db: SheetsDB = Depends(get_sheets_db)):
     """Get dashboard overview for all projects with connection status."""
     try:
-        # Auto-cleanup stuck runs (running > 10 min = timed out)
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
-        db.query(PipelineRun).filter(
-            PipelineRun.status == "running",
-            PipelineRun.started_at < cutoff,
-        ).update({
-            PipelineRun.status: "failed",
-            PipelineRun.error_message: "Timed out",
-            PipelineRun.completed_at: datetime.now(timezone.utc),
-        })
-        db.commit()
+        db.cleanup_stuck_runs(cutoff)
     except Exception as e:
         logger.warning(f"Cleanup stuck runs failed: {e}")
-        db.rollback()
 
-    projects = db.query(Project).all()
+    projects = db.get_all_projects()
+    all_runs = db.get_pipeline_runs()
+    all_posts = db.get_generated_posts()
+    all_articles = db.get_articles()
+    all_profiles = db.get_all_profiles()
+
     project_data = []
-
     for p in projects:
-        last_run = (
-            db.query(PipelineRun)
-            .filter(PipelineRun.project_id == p.id)
-            .order_by(desc(PipelineRun.started_at))
-            .first()
-        )
+        pid = p["id"]
+        p_runs = [r for r in all_runs if r["project_id"] == pid]
+        last_run = p_runs[0] if p_runs else None
+
         try:
-            next_run = get_next_run_time(p.id)
+            next_run = get_next_run_time(pid)
         except Exception:
             next_run = None
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
-        today_posts = (
-            db.query(GeneratedPost)
-            .filter(GeneratedPost.project_id == p.id, GeneratedPost.created_at >= today_start)
-            .count()
-        )
-        total_posts = db.query(GeneratedPost).filter(GeneratedPost.project_id == p.id).count()
-        total_articles = db.query(Article).filter(Article.project_id == p.id).count()
-        total_runs = db.query(PipelineRun).filter(PipelineRun.project_id == p.id).count()
-        success_runs = db.query(PipelineRun).filter(
-            PipelineRun.project_id == p.id, PipelineRun.status == "success"
-        ).count()
 
-        # Connection status
-        profiles = db.query(Profile).filter(Profile.project_id == p.id).all()
-        linkedin_connected = any(pr.platform == "linkedin" and pr.access_token for pr in profiles)
-        twitter_connected = any(pr.platform == "twitter" and pr.access_token for pr in profiles)
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
+        p_posts = [pp for pp in all_posts if pp["project_id"] == pid]
+        today_posts = sum(1 for pp in p_posts if pp.get("created_at") and pp["created_at"] >= today_start.isoformat())
+        total_posts = len(p_posts)
+
+        p_articles = [a for a in all_articles if a["project_id"] == pid]
+        total_articles = len(p_articles)
+        total_runs = len(p_runs)
+        success_runs = sum(1 for r in p_runs if r["status"] == "success")
+
+        p_profiles = [pr for pr in all_profiles if pr["project_id"] == pid]
+        linkedin_connected = any(pr["platform"] == "linkedin" and pr["access_token"] for pr in p_profiles)
+        twitter_connected = any(pr["platform"] == "twitter" and pr["access_token"] for pr in p_profiles)
 
         project_data.append({
-            "id": p.id,
-            "display_name": p.display_name,
-            "is_active": p.is_active,
-            "twitter_enabled": p.twitter_enabled,
+            "id": pid,
+            "display_name": p["display_name"],
+            "is_active": p["is_active"],
+            "twitter_enabled": p["twitter_enabled"],
             "linkedin_connected": linkedin_connected,
             "twitter_connected": twitter_connected,
             "last_run": {
-                "status": last_run.status if last_run else "never",
-                "time": last_run.started_at.isoformat() if last_run else None,
-                "used_fallback": last_run.used_fallback if last_run else False,
+                "status": last_run["status"] if last_run else "never",
+                "time": last_run["started_at"] if last_run else None,
+                "used_fallback": last_run["used_fallback"] if last_run else False,
             } if last_run else None,
             "next_run": next_run.isoformat() if next_run else None,
             "today_posts": today_posts,
@@ -98,23 +82,18 @@ def get_overview(db: Session = Depends(get_db)):
             "success_runs": success_runs,
         })
 
-    recent_runs = (
-        db.query(PipelineRun)
-        .order_by(desc(PipelineRun.started_at))
-        .limit(10)
-        .all()
-    )
+    recent_runs = all_runs[:10]
 
     return {
         "projects": project_data,
         "recent_runs": [
             {
-                "id": r.id,
-                "project_id": r.project_id,
-                "status": r.status,
-                "trigger_type": r.trigger_type,
-                "started_at": r.started_at.isoformat(),
-                "used_fallback": r.used_fallback,
+                "id": r["id"],
+                "project_id": r["project_id"],
+                "status": r["status"],
+                "trigger_type": r["trigger_type"],
+                "started_at": r["started_at"],
+                "used_fallback": r["used_fallback"],
             }
             for r in recent_runs
         ],
@@ -128,16 +107,14 @@ def list_runs(
     project_id: str = None,
     page: int = 1,
     per_page: int = 20,
-    db: Session = Depends(get_db),
+    db: SheetsDB = Depends(get_sheets_db),
 ):
     """List pipeline runs with pagination."""
-    query = db.query(PipelineRun)
-    if project_id:
-        query = query.filter(PipelineRun.project_id == project_id)
-    query = query.order_by(desc(PipelineRun.started_at))
+    runs = db.get_pipeline_runs(project_id=project_id)
 
-    total = query.count()
-    runs = query.offset((page - 1) * per_page).limit(per_page).all()
+    total = len(runs)
+    start = (page - 1) * per_page
+    page_runs = runs[start:start + per_page]
 
     return {
         "total": total,
@@ -145,67 +122,60 @@ def list_runs(
         "per_page": per_page,
         "runs": [
             {
-                "id": r.id,
-                "project_id": r.project_id,
-                "trigger_type": r.trigger_type,
-                "status": r.status,
-                "started_at": r.started_at.isoformat(),
-                "completed_at": r.completed_at.isoformat() if r.completed_at else None,
-                "articles_fetched": r.articles_fetched,
-                "articles_new": r.articles_new,
-                "ai_model_used": r.ai_model_used,
-                "used_fallback": r.used_fallback,
-                "error_message": r.error_message,
-                "selected_article_title": r.selected_article.title if r.selected_article else None,
+                "id": r["id"],
+                "project_id": r["project_id"],
+                "trigger_type": r["trigger_type"],
+                "status": r["status"],
+                "started_at": r["started_at"],
+                "completed_at": r["completed_at"] or None,
+                "articles_fetched": r["articles_fetched"],
+                "articles_new": r["articles_new"],
+                "ai_model_used": r["ai_model_used"],
+                "used_fallback": r["used_fallback"],
+                "error_message": r["error_message"],
+                "selected_article_title": _get_article_title(db, r.get("selected_article_id")),
             }
-            for r in runs
+            for r in page_runs
         ],
     }
 
 
 @router.get("/runs/{run_id}")
-def get_run_detail(run_id: int, db: Session = Depends(get_db)):
+def get_run_detail(run_id: int, db: SheetsDB = Depends(get_sheets_db)):
     """Get detailed info for a single pipeline run."""
-    run = db.query(PipelineRun).filter(PipelineRun.id == run_id).first()
+    run = db.get_pipeline_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    posts = db.query(GeneratedPost).filter(GeneratedPost.pipeline_run_id == run_id).all()
+    posts = db.get_generated_posts(pipeline_run_id=run_id)
+    selected_article = db.get_article(run["selected_article_id"]) if run.get("selected_article_id") else None
 
     return {
-        "id": run.id,
-        "project_id": run.project_id,
-        "trigger_type": run.trigger_type,
-        "status": run.status,
-        "started_at": run.started_at.isoformat(),
-        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
-        "articles_fetched": run.articles_fetched,
-        "articles_new": run.articles_new,
-        "ai_model_used": run.ai_model_used,
-        "used_fallback": run.used_fallback,
-        "error_message": run.error_message,
-        "log_details": json.loads(run.log_details) if run.log_details else [],
+        "id": run["id"],
+        "project_id": run["project_id"],
+        "trigger_type": run["trigger_type"],
+        "status": run["status"],
+        "started_at": run["started_at"],
+        "completed_at": run["completed_at"] or None,
+        "articles_fetched": run["articles_fetched"],
+        "articles_new": run["articles_new"],
+        "ai_model_used": run["ai_model_used"],
+        "used_fallback": run["used_fallback"],
+        "error_message": run["error_message"],
+        "log_details": run["log_details"] if isinstance(run["log_details"], list) else [],
         "selected_article": {
-            "title": run.selected_article.title,
-            "url": run.selected_article.url,
-            "score": run.selected_article.relevance_score,
-        } if run.selected_article else None,
+            "title": selected_article["title"],
+            "url": selected_article["url"],
+            "score": selected_article["relevance_score"],
+        } if selected_article else None,
         "posts": [
             {
-                "id": p.id,
-                "platform": p.platform,
-                "content": p.content,
-                "is_fallback": p.is_fallback,
-                "quality_score": p.quality_score,
-                "publish_results": [
-                    {
-                        "platform": pr.platform,
-                        "account_type": pr.account_type,
-                        "status": pr.status,
-                        "error_message": pr.error_message,
-                    }
-                    for pr in p.publish_results
-                ],
+                "id": p["id"],
+                "platform": p["platform"],
+                "content": p["content"],
+                "is_fallback": p["is_fallback"],
+                "quality_score": p["quality_score"],
+                "publish_results": db.get_publish_results(generated_post_id=p["id"]),
             }
             for p in posts
         ],
@@ -213,55 +183,44 @@ def get_run_detail(run_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/runs/trigger")
-def trigger_pipeline(request: ManualTriggerRequest, db: Session = Depends(get_db)):
+def trigger_pipeline(request: ManualTriggerRequest, db: SheetsDB = Depends(get_sheets_db)):
     """Manually trigger a pipeline run for a project."""
-    project = db.query(Project).filter(Project.id == request.project_id).first()
+    project = db.get_project(request.project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Check if a run is already in progress
-    running = (
-        db.query(PipelineRun)
-        .filter(PipelineRun.project_id == request.project_id, PipelineRun.status == "running")
-        .first()
-    )
+    running = db.get_running_pipeline(request.project_id)
     if running:
         raise HTTPException(status_code=409, detail="A pipeline run is already in progress")
 
     settings = get_settings()
 
     if settings.is_vercel:
-        # Vercel serverless: run synchronously (threads get killed after response)
         from app.pipeline.orchestrator import run_pipeline
         try:
             result = run_pipeline(request.project_id, trigger_type="manual", db=db)
             return {
-                "message": f"Pipeline completed for {project.display_name}",
+                "message": f"Pipeline completed for {project['display_name']}",
                 "project_id": request.project_id,
-                "status": result.status,
-                "articles_fetched": result.articles_fetched,
+                "status": result["status"] if result else "unknown",
+                "articles_fetched": result["articles_fetched"] if result else 0,
             }
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     else:
-        # Local: run in background thread for non-blocking UX
-        from app.database import SessionLocal
-
         def _run():
-            session = SessionLocal()
             try:
+                sheets_db = SheetsDB()
                 from app.pipeline.orchestrator import run_pipeline
-                result = run_pipeline(request.project_id, trigger_type="manual", db=session)
-                logger.info(f"Manual pipeline for {request.project_id} completed: {result.status}")
+                result = run_pipeline(request.project_id, trigger_type="manual", db=sheets_db)
+                logger.info(f"Manual pipeline for {request.project_id} completed: {result['status']}")
             except Exception as e:
                 logger.error(f"Manual pipeline for {request.project_id} failed: {e}", exc_info=True)
-            finally:
-                session.close()
 
         thread = threading.Thread(target=_run, daemon=True)
         thread.start()
 
-        return {"message": f"Pipeline triggered for {project.display_name}", "project_id": request.project_id}
+        return {"message": f"Pipeline triggered for {project['display_name']}", "project_id": request.project_id}
 
 
 # ========== Generated Posts ==========
@@ -271,16 +230,14 @@ def list_posts(
     project_id: str = None,
     page: int = 1,
     per_page: int = 20,
-    db: Session = Depends(get_db),
+    db: SheetsDB = Depends(get_sheets_db),
 ):
     """List generated posts with pagination."""
-    query = db.query(GeneratedPost)
-    if project_id:
-        query = query.filter(GeneratedPost.project_id == project_id)
-    query = query.order_by(desc(GeneratedPost.created_at))
+    posts = db.get_generated_posts(project_id=project_id)
 
-    total = query.count()
-    posts = query.offset((page - 1) * per_page).limit(per_page).all()
+    total = len(posts)
+    start = (page - 1) * per_page
+    page_posts = posts[start:start + per_page]
 
     return {
         "total": total,
@@ -288,26 +245,26 @@ def list_posts(
         "per_page": per_page,
         "posts": [
             {
-                "id": p.id,
-                "pipeline_run_id": p.pipeline_run_id,
-                "project_id": p.project_id,
-                "platform": p.platform,
-                "content": p.content,
-                "article_url": p.article_url,
-                "article_title": p.article_title,
-                "is_fallback": p.is_fallback,
-                "quality_score": p.quality_score,
-                "created_at": p.created_at.isoformat(),
+                "id": p["id"],
+                "pipeline_run_id": p["pipeline_run_id"],
+                "project_id": p["project_id"],
+                "platform": p["platform"],
+                "content": p["content"],
+                "article_url": p["article_url"],
+                "article_title": p["article_title"],
+                "is_fallback": p["is_fallback"],
+                "quality_score": p["quality_score"],
+                "created_at": p["created_at"],
                 "publish_results": [
                     {
-                        "account_type": pr.account_type,
-                        "status": pr.status,
-                        "error_message": pr.error_message,
+                        "account_type": pr["account_type"],
+                        "status": pr["status"],
+                        "error_message": pr["error_message"],
                     }
-                    for pr in p.publish_results
+                    for pr in db.get_publish_results(generated_post_id=p["id"])
                 ],
             }
-            for p in posts
+            for p in page_posts
         ],
     }
 
@@ -319,16 +276,14 @@ def list_articles(
     project_id: str = None,
     page: int = 1,
     per_page: int = 50,
-    db: Session = Depends(get_db),
+    db: SheetsDB = Depends(get_sheets_db),
 ):
     """List articles with scores."""
-    query = db.query(Article)
-    if project_id:
-        query = query.filter(Article.project_id == project_id)
-    query = query.order_by(desc(Article.created_at))
+    articles = db.get_articles(project_id=project_id)
 
-    total = query.count()
-    articles = query.offset((page - 1) * per_page).limit(per_page).all()
+    total = len(articles)
+    start = (page - 1) * per_page
+    page_articles = articles[start:start + per_page]
 
     return {
         "total": total,
@@ -336,17 +291,17 @@ def list_articles(
         "per_page": per_page,
         "articles": [
             {
-                "id": a.id,
-                "project_id": a.project_id,
-                "url": a.url,
-                "title": a.title,
-                "source_feed": a.source_feed,
-                "published_at": a.published_at.isoformat() if a.published_at else None,
-                "relevance_score": a.relevance_score,
-                "was_selected": a.was_selected,
-                "created_at": a.created_at.isoformat() if a.created_at else None,
+                "id": a["id"],
+                "project_id": a["project_id"],
+                "url": a["url"],
+                "title": a["title"],
+                "source_feed": a["source_feed"],
+                "published_at": a["published_at"] or None,
+                "relevance_score": a["relevance_score"],
+                "was_selected": a["was_selected"],
+                "created_at": a["created_at"] or None,
             }
-            for a in articles
+            for a in page_articles
         ],
     }
 
@@ -354,154 +309,153 @@ def list_articles(
 # ========== Projects ==========
 
 @router.get("/projects")
-def list_projects(db: Session = Depends(get_db)):
+def list_projects(db: SheetsDB = Depends(get_sheets_db)):
     """List all projects."""
-    projects = db.query(Project).all()
+    projects = db.get_all_projects()
     return [
         {
-            "id": p.id,
-            "display_name": p.display_name,
-            "description": p.description,
-            "schedule_cron": p.schedule_cron,
-            "twitter_enabled": p.twitter_enabled,
-            "is_active": p.is_active,
-            "hashtags": json.loads(p.hashtags),
-            "rss_feeds": json.loads(p.rss_feeds),
+            "id": p["id"],
+            "display_name": p["display_name"],
+            "description": p["description"],
+            "schedule_cron": p["schedule_cron"],
+            "twitter_enabled": p["twitter_enabled"],
+            "is_active": p["is_active"],
+            "hashtags": p["hashtags"],
+            "rss_feeds": p["rss_feeds"],
         }
         for p in projects
     ]
 
 
 @router.get("/projects/{project_id}")
-def get_project(project_id: str, db: Session = Depends(get_db)):
+def get_project(project_id: str, db: SheetsDB = Depends(get_sheets_db)):
     """Get full project configuration."""
-    p = db.query(Project).filter(Project.id == project_id).first()
+    p = db.get_project(project_id)
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
     return {
-        "id": p.id,
-        "display_name": p.display_name,
-        "description": p.description,
-        "brand_voice": p.brand_voice,
-        "hashtags": json.loads(p.hashtags),
-        "rss_feeds": json.loads(p.rss_feeds),
-        "scoring_weights": json.loads(p.scoring_weights),
-        "schedule_cron": p.schedule_cron,
-        "twitter_enabled": p.twitter_enabled,
-        "is_active": p.is_active,
+        "id": p["id"],
+        "display_name": p["display_name"],
+        "description": p["description"],
+        "brand_voice": p["brand_voice"],
+        "hashtags": p["hashtags"],
+        "rss_feeds": p["rss_feeds"],
+        "scoring_weights": p["scoring_weights"],
+        "schedule_cron": p["schedule_cron"],
+        "twitter_enabled": p["twitter_enabled"],
+        "is_active": p["is_active"],
     }
 
 
 @router.put("/projects/{project_id}")
-def update_project(project_id: str, update: ProjectUpdate, db: Session = Depends(get_db)):
+def update_project(project_id: str, update: ProjectUpdate, db: SheetsDB = Depends(get_sheets_db)):
     """Update project settings."""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = db.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    updates = {}
     if update.display_name is not None:
-        project.display_name = update.display_name
+        updates["display_name"] = update.display_name
     if update.description is not None:
-        project.description = update.description
+        updates["description"] = update.description
     if update.brand_voice is not None:
-        project.brand_voice = update.brand_voice
+        updates["brand_voice"] = update.brand_voice
     if update.hashtags is not None:
-        project.hashtags = json.dumps(update.hashtags)
+        updates["hashtags"] = update.hashtags
     if update.rss_feeds is not None:
-        project.rss_feeds = json.dumps(update.rss_feeds)
+        updates["rss_feeds"] = update.rss_feeds
     if update.scoring_weights is not None:
-        project.scoring_weights = json.dumps(update.scoring_weights)
+        updates["scoring_weights"] = update.scoring_weights
     if update.schedule_cron is not None:
-        project.schedule_cron = update.schedule_cron
+        updates["schedule_cron"] = update.schedule_cron
         add_project_schedule(project_id, update.schedule_cron)
     if update.twitter_enabled is not None:
-        project.twitter_enabled = update.twitter_enabled
+        updates["twitter_enabled"] = update.twitter_enabled
     if update.is_active is not None:
-        project.is_active = update.is_active
+        updates["is_active"] = update.is_active
 
-    db.commit()
+    if updates:
+        db.update_project(project_id, updates)
+
     return {"message": "Project updated", "project_id": project_id}
 
 
 # ========== Profiles ==========
 
 @router.get("/profiles")
-def list_profiles(project_id: str = None, db: Session = Depends(get_db)):
+def list_profiles(project_id: str = None, db: SheetsDB = Depends(get_sheets_db)):
     """List profiles for a project."""
-    query = db.query(Profile)
-    if project_id:
-        query = query.filter(Profile.project_id == project_id)
-    profiles = query.all()
+    profiles = db.get_all_profiles(project_id=project_id)
     return [
         {
-            "id": p.id,
-            "project_id": p.project_id,
-            "platform": p.platform,
-            "account_type": p.account_type,
-            "display_name": p.display_name,
-            "has_token": bool(p.access_token),
-            "token_expires_at": p.token_expires_at.isoformat() if p.token_expires_at else None,
-            "platform_user_id": p.platform_user_id,
-            "is_active": p.is_active,
+            "id": p["id"],
+            "project_id": p["project_id"],
+            "platform": p["platform"],
+            "account_type": p["account_type"],
+            "display_name": p["display_name"],
+            "has_token": bool(p["access_token"]),
+            "token_expires_at": p["token_expires_at"].isoformat() if p.get("token_expires_at") else None,
+            "platform_user_id": p["platform_user_id"],
+            "is_active": p["is_active"],
         }
         for p in profiles
     ]
 
 
 @router.put("/profiles/{profile_id}")
-def update_profile(profile_id: int, update: ProfileUpdate, db: Session = Depends(get_db)):
+def update_profile(profile_id: int, update: ProfileUpdate, db: SheetsDB = Depends(get_sheets_db)):
     """Update profile settings."""
-    profile = db.query(Profile).filter(Profile.id == profile_id).first()
+    profile = db.get_profile(profile_id)
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
 
+    updates = {}
     if update.display_name is not None:
-        profile.display_name = update.display_name
+        updates["display_name"] = update.display_name
     if update.platform_user_id is not None:
-        profile.platform_user_id = update.platform_user_id
+        updates["platform_user_id"] = update.platform_user_id
     if update.access_token is not None:
-        profile.access_token = update.access_token
+        updates["access_token"] = update.access_token
     if update.refresh_token is not None:
-        profile.refresh_token = update.refresh_token
+        updates["refresh_token"] = update.refresh_token
     if update.is_active is not None:
-        profile.is_active = update.is_active
+        updates["is_active"] = update.is_active
 
-    db.commit()
+    if updates:
+        db.update_profile(profile_id, updates)
+
     return {"message": "Profile updated", "profile_id": profile_id}
 
 
 @router.post("/profiles/disconnect/{project_id}/{platform}")
-def disconnect_platform(project_id: str, platform: str, db: Session = Depends(get_db)):
+def disconnect_platform(project_id: str, platform: str, db: SheetsDB = Depends(get_sheets_db)):
     """Disconnect a platform from a project - clears all tokens."""
-    profiles = (
-        db.query(Profile)
-        .filter(Profile.project_id == project_id, Profile.platform == platform)
-        .all()
-    )
-    if not profiles:
+    profiles = db.get_all_profiles(project_id=project_id)
+    platform_profiles = [p for p in profiles if p["platform"] == platform]
+    if not platform_profiles:
         raise HTTPException(status_code=404, detail="No profiles found")
 
-    for p in profiles:
-        p.access_token = ""
-        p.refresh_token = ""
-        p.token_expires_at = None
-        p.platform_user_id = ""
-        p.is_active = False
+    for p in platform_profiles:
+        updates = {
+            "access_token": "",
+            "refresh_token": "",
+            "token_expires_at": "",
+            "platform_user_id": "",
+            "is_active": False,
+        }
         if platform == "twitter":
-            p.extra_config = "{}"
+            updates["extra_config"] = "{}"
+        db.update_profile(p["id"], updates)
 
-    # If disconnecting twitter, also disable twitter on the project
     if platform == "twitter":
-        project = db.query(Project).filter(Project.id == project_id).first()
-        if project:
-            project.twitter_enabled = False
+        db.update_project(project_id, {"twitter_enabled": False})
 
-    db.commit()
     return {"message": f"{platform} disconnected from {project_id}"}
 
 
 @router.put("/profiles/twitter/{project_id}")
-def save_twitter_credentials(project_id: str, body: dict, db: Session = Depends(get_db)):
+def save_twitter_credentials(project_id: str, body: dict, db: SheetsDB = Depends(get_sheets_db)):
     """Save Twitter API credentials for a project."""
     api_key = body.get("api_key", "").strip()
     api_secret = body.get("api_secret", "").strip()
@@ -511,71 +465,53 @@ def save_twitter_credentials(project_id: str, body: dict, db: Session = Depends(
     if not all([api_key, api_secret, access_token, access_secret]):
         raise HTTPException(status_code=400, detail="All 4 Twitter credentials are required")
 
-    # Get or create the twitter profile for this project
-    profile = (
-        db.query(Profile)
-        .filter(
-            Profile.project_id == project_id,
-            Profile.platform == "twitter",
-            Profile.account_type == "personal",
-        )
-        .first()
-    )
+    profile = db.get_profile_by_keys(project_id, "twitter", "personal")
     if not profile:
-        profile = Profile(
-            project_id=project_id,
-            platform="twitter",
-            account_type="personal",
-            display_name=f"{project_id} - Twitter",
-        )
-        db.add(profile)
+        profile_id = db.insert_profile({
+            "project_id": project_id,
+            "platform": "twitter",
+            "account_type": "personal",
+            "display_name": f"{project_id} - Twitter",
+        })
+    else:
+        profile_id = profile["id"]
 
-    # Store credentials in extra_config JSON
-    profile.extra_config = json.dumps({
-        "api_key": api_key,
-        "api_secret": api_secret,
+    db.update_profile(profile_id, {
+        "extra_config": json.dumps({
+            "api_key": api_key,
+            "api_secret": api_secret,
+            "access_token": access_token,
+            "access_secret": access_secret,
+        }),
         "access_token": access_token,
-        "access_secret": access_secret,
+        "is_active": True,
     })
-    profile.access_token = access_token  # Mark as "has token"
-    profile.is_active = True
 
-    # Enable twitter on the project
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if project:
-        project.twitter_enabled = True
+    db.update_project(project_id, {"twitter_enabled": True})
 
-    db.commit()
     return {"message": f"Twitter connected for {project_id}"}
 
 
 # ========== Metrics ==========
 
 @router.get("/metrics")
-def get_metrics(project_id: str = None, days: int = 30, db: Session = Depends(get_db)):
+def get_metrics(project_id: str = None, days: int = 30, db: SheetsDB = Depends(get_sheets_db)):
     """Get aggregated metrics."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
+    since_iso = since.isoformat()
 
-    query = db.query(PipelineRun).filter(PipelineRun.started_at >= since)
-    if project_id:
-        query = query.filter(PipelineRun.project_id == project_id)
+    runs = db.get_pipeline_runs(project_id=project_id)
+    runs = [r for r in runs if r.get("started_at", "") >= since_iso]
 
-    # Exclude still-running entries from completed metrics
-    runs = query.all()
-    completed_runs = [r for r in runs if r.status != "running"]
+    completed_runs = [r for r in runs if r["status"] != "running"]
     total = len(completed_runs)
-    successful = sum(1 for r in completed_runs if r.status == "success")
-    failed = sum(1 for r in completed_runs if r.status == "failed")
-    partial = sum(1 for r in completed_runs if r.status == "partial_failure")
-    fallback = sum(1 for r in completed_runs if r.used_fallback)
-    avg_articles = sum((r.articles_fetched or 0) for r in completed_runs) / max(total, 1)
+    successful = sum(1 for r in completed_runs if r["status"] == "success")
+    failed = sum(1 for r in completed_runs if r["status"] == "failed")
+    partial = sum(1 for r in completed_runs if r["status"] == "partial_failure")
+    fallback = sum(1 for r in completed_runs if r["used_fallback"])
+    avg_articles = sum((r["articles_fetched"] or 0) for r in completed_runs) / max(total, 1)
 
-    # Top sources
-    source_query = db.query(Article.source_feed, func.count(Article.id).label("count"))
-    if project_id:
-        source_query = source_query.filter(Article.project_id == project_id)
-    source_query = source_query.filter(Article.was_selected == True)
-    sources = source_query.group_by(Article.source_feed).order_by(desc("count")).limit(5).all()
+    top_sources = db.get_top_sources(project_id=project_id, limit=5)
 
     return {
         "project_id": project_id or "all",
@@ -587,7 +523,7 @@ def get_metrics(project_id: str = None, days: int = 30, db: Session = Depends(ge
         "fallback_count": fallback,
         "success_rate": round(successful / max(total, 1) * 100, 1),
         "avg_articles_per_run": round(avg_articles, 1),
-        "top_sources": [{"source": s[0], "count": s[1]} for s in sources],
+        "top_sources": top_sources,
     }
 
 
@@ -600,26 +536,24 @@ def list_scheduler_jobs():
 
 
 @router.get("/internal/export-tokens")
-def export_tokens(secret: str = "", db: Session = Depends(get_db)):
+def export_tokens(secret: str = "", db: SheetsDB = Depends(get_sheets_db)):
     """Export LinkedIn tokens for persistence. Protected by CRON_SECRET."""
     settings = get_settings()
     if not settings.CRON_SECRET or secret != settings.CRON_SECRET:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    profiles = db.query(Profile).filter(
-        Profile.platform == "linkedin",
-        Profile.access_token != "",
-    ).all()
+    profiles = db.get_all_profiles()
+    linkedin_profiles = [p for p in profiles if p["platform"] == "linkedin" and p["access_token"]]
 
     result = {}
-    for p in profiles:
-        prefix = f"LINKEDIN_{p.project_id.upper()}"
-        if p.account_type == "personal" and p.platform_user_id:
-            result[f"{prefix}_ACCESS_TOKEN"] = p.access_token
-            result[f"{prefix}_REFRESH_TOKEN"] = p.refresh_token or ""
-            result[f"{prefix}_USER_ID"] = p.platform_user_id
-        elif p.account_type == "organization" and p.platform_user_id:
-            result[f"{prefix}_ORG_ID"] = p.platform_user_id
+    for p in linkedin_profiles:
+        prefix = f"LINKEDIN_{p['project_id'].upper()}"
+        if p["account_type"] == "personal" and p["platform_user_id"]:
+            result[f"{prefix}_ACCESS_TOKEN"] = p["access_token"]
+            result[f"{prefix}_REFRESH_TOKEN"] = p["refresh_token"] or ""
+            result[f"{prefix}_USER_ID"] = p["platform_user_id"]
+        elif p["account_type"] == "organization" and p["platform_user_id"]:
+            result[f"{prefix}_ORG_ID"] = p["platform_user_id"]
 
     return result
 
@@ -636,3 +570,12 @@ def resume_schedule(project_id: str):
     """Resume a project's schedule."""
     resume_project_schedule(project_id)
     return {"message": f"Schedule resumed for {project_id}"}
+
+
+# ========== Helpers ==========
+
+def _get_article_title(db: SheetsDB, article_id) -> str | None:
+    if not article_id:
+        return None
+    article = db.get_article(article_id)
+    return article["title"] if article else None

@@ -24,8 +24,9 @@ class Settings(BaseSettings):
     CRON_SECRET: str = ""
     VERCEL: str = ""  # Set automatically by Vercel to "1"
 
-    # Database  (Neon PostgreSQL in production, SQLite for local dev)
-    DATABASE_URL: str = f"sqlite:///{os.path.join(_project_root, 'automation.db')}"
+    # Google Sheets (replaces PostgreSQL/SQLite)
+    GOOGLE_SHEETS_CREDENTIALS_B64: str = ""
+    GOOGLE_SHEETS_SPREADSHEET_ID: str = ""
 
     # Pollinations AI
     POLLINATIONS_API_KEY: str = ""
@@ -60,10 +61,6 @@ class Settings(BaseSettings):
     @property
     def is_vercel(self) -> bool:
         return bool(self.VERCEL)
-
-    @property
-    def is_postgres(self) -> bool:
-        return self.DATABASE_URL.startswith("postgresql")
 
     @property
     def fallback_models(self) -> list[str]:

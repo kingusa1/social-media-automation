@@ -22,16 +22,16 @@ APP_DIR = Path(__file__).parent
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle."""
-    from app.database import init_db, SessionLocal
+    from app.sheets_db import init_sheets
 
     # Startup
     logger.info("Starting Social Media Automation System...")
-    init_db()
+    init_sheets()
 
     # Only use APScheduler when running locally (not on Vercel serverless)
     if not settings.is_vercel:
         from app.scheduler.scheduler import init_scheduler, start as start_scheduler, shutdown as shutdown_scheduler
-        init_scheduler(SessionLocal)
+        init_scheduler()
         start_scheduler()
     else:
         logger.info("Running on Vercel - using cron jobs instead of APScheduler")

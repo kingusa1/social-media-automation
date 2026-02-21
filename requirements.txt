@@ -1,6 +1,5 @@
 fastapi
 uvicorn[standard]
-sqlalchemy
 pydantic
 pydantic-settings
 python-dotenv
@@ -14,5 +13,6 @@ tweepy
 jinja2
 cryptography
 python-multipart
-psycopg2-binary
 httpx
+gspread
+google-auth
