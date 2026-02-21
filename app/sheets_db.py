@@ -701,6 +701,7 @@ def _seed_projects(db: SheetsDB):
     if not config_dir.exists():
         return
 
+    _invalidate("Projects")  # Force fresh read
     existing = {p["id"] for p in db.get_all_projects()}
 
     for config_file in config_dir.glob("*.json"):
