@@ -42,10 +42,18 @@ def _get_spreadsheet():
     if not creds_b64:
         raise RuntimeError("GOOGLE_SHEETS_CREDENTIALS_B64 env var is not set")
 
+    sheet_id = settings.GOOGLE_SHEETS_SPREADSHEET_ID
+    if not sheet_id:
+        raise RuntimeError("GOOGLE_SHEETS_SPREADSHEET_ID env var is not set")
+
+    logger.info(f"Connecting to Google Sheet ID: {sheet_id[:20]}... (len={len(sheet_id)})")
+    logger.info(f"Credentials B64 length: {len(creds_b64)}")
+
     creds_json = json.loads(base64.b64decode(creds_b64))
+    logger.info(f"Service account: {creds_json.get('client_email', 'unknown')}")
     creds = Credentials.from_service_account_info(creds_json, scopes=SCOPES)
     _gc = gspread.authorize(creds)
-    _spreadsheet = _gc.open_by_key(settings.GOOGLE_SHEETS_SPREADSHEET_ID)
+    _spreadsheet = _gc.open_by_key(sheet_id.strip())
     logger.info(f"Connected to Google Sheet: {_spreadsheet.title}")
     return _spreadsheet
 
@@ -678,8 +686,12 @@ def get_sheets_db():
 
 def init_sheets():
     """Called at startup. Seeds projects if empty."""
-    db = SheetsDB()
-    _seed_projects(db)
+    try:
+        db = SheetsDB()
+        _seed_projects(db)
+        logger.info("Google Sheets initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize Google Sheets: {e}", exc_info=True)
 
 
 def _seed_projects(db: SheetsDB):
