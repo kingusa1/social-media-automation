@@ -77,6 +77,54 @@ function showToast(message, type) {
     toastEl.addEventListener('hidden.bs.toast', function() { toastEl.remove(); });
 }
 
+/* Compute next cron run as a readable string like "Mon, Feb 24 at 3:00 PM UTC" */
+function nextCronRun(cron) {
+    if (!cron) return 'Not scheduled';
+    var parts = cron.trim().split(/\s+/);
+    if (parts.length < 5) return cron;
+
+    var minute = parseInt(parts[0]);
+    var hour = parseInt(parts[1]);
+    var dow = parts[4];
+
+    // Determine allowed days of week (0=Sun, 6=Sat)
+    var allowedDays = null;
+    if (dow !== '*') {
+        allowedDays = [];
+        dow.split(',').forEach(function(chunk) {
+            if (chunk.indexOf('-') > -1) {
+                var range = chunk.split('-');
+                for (var d = parseInt(range[0]); d <= parseInt(range[1]); d++) allowedDays.push(d);
+            } else {
+                allowedDays.push(parseInt(chunk));
+            }
+        });
+    }
+
+    // Find next matching UTC time
+    var now = new Date();
+    var candidate = new Date(Date.UTC(
+        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hour, minute, 0
+    ));
+    if (candidate <= now) candidate.setUTCDate(candidate.getUTCDate() + 1);
+    if (allowedDays) {
+        for (var tries = 0; tries < 7; tries++) {
+            if (allowedDays.indexOf(candidate.getUTCDay()) >= 0) break;
+            candidate.setUTCDate(candidate.getUTCDate() + 1);
+        }
+    }
+
+    // Format: "Mon, Feb 24 at 3:00 PM UTC"
+    var dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var h = candidate.getUTCHours();
+    var m = candidate.getUTCMinutes();
+    var ampm = h >= 12 ? 'PM' : 'AM';
+    var h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+    return dayNames[candidate.getUTCDay()] + ', ' + monthNames[candidate.getUTCMonth()] + ' ' +
+           candidate.getUTCDate() + ' at ' + h12 + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm + ' UTC';
+}
+
 /* Cron helper: human-readable description */
 function describeCron(cron) {
     if (!cron) return 'Not scheduled';

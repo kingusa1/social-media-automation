@@ -99,7 +99,7 @@ async function loadDashboard() {
                         '</div>' +
                         '<div class="info-row">' +
                             '<span class="label"><i class="bi bi-calendar-event me-1"></i>Next Run</span>' +
-                            '<span>' + (p.next_run ? formatTime(p.next_run) : '<span style="color:var(--text-muted)">Via Vercel cron</span>') + '</span>' +
+                            '<span style="font-size:0.85rem">' + nextCronRun(p.schedule_cron) + '</span>' +
                         '</div>' +
 
                         (!hasAccounts ?

@@ -1,8 +1,19 @@
-"""Validate AI-generated social media posts for quality, grammar, and brand compliance."""
+"""Validate and sanitize social media posts before publishing.
+
+Ensures posts are clean, professional, and free of HTML, URLs, broken text,
+non-English content, and common AI generation artifacts.
+"""
 import logging
 import re
 
 logger = logging.getLogger(__name__)
+
+# HTML tag pattern (catches <div>, <img>, <a href>, <span>, etc.)
+_HTML_TAG_RE = re.compile(r'<[a-zA-Z/][^>]*>')
+# URL/link pattern
+_URL_RE = re.compile(r'https?://\S+|www\.\S+|bit\.ly/\S+', re.IGNORECASE)
+# HTML entities
+_HTML_ENTITY_RE = re.compile(r'&(?:amp|lt|gt|quot|nbsp|#\d+|#x[0-9a-f]+);', re.IGNORECASE)
 
 
 class ValidationResult:
@@ -13,123 +24,170 @@ class ValidationResult:
         self.warnings: list[str] = []
 
 
+def sanitize_post(text: str) -> str:
+    """Final safety net: strip any HTML tags, entities, and URLs from a post.
+
+    Called on EVERY post (AI-generated and fallback) right before publishing.
+    This ensures nothing with raw HTML or links ever reaches social media.
+    """
+    if not text:
+        return text
+
+    # Strip HTML tags
+    clean = _HTML_TAG_RE.sub('', text)
+
+    # Decode common HTML entities
+    clean = clean.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+    clean = clean.replace('&quot;', '"').replace('&#39;', "'").replace('&nbsp;', ' ')
+    clean = _HTML_ENTITY_RE.sub('', clean)
+
+    # Remove URLs/links
+    clean = _URL_RE.sub('', clean)
+
+    # Collapse multiple blank lines into max 2
+    clean = re.sub(r'\n{4,}', '\n\n\n', clean)
+    # Collapse multiple spaces
+    clean = re.sub(r'  +', ' ', clean)
+    # Remove leading/trailing whitespace on each line
+    clean = '\n'.join(line.strip() for line in clean.split('\n'))
+    # Remove leading/trailing whitespace overall
+    clean = clean.strip()
+
+    return clean
+
+
 def validate_posts(
     linkedin_post: str,
     twitter_post: str,
     hashtags: list[str] = None,
 ) -> ValidationResult:
-    """Validate LinkedIn and Twitter posts for quality, grammar, and language."""
+    """Validate LinkedIn and Twitter posts for quality, grammar, and language.
+
+    Posts that contain HTML tags, URLs, or non-English text are immediately rejected.
+    """
     result = ValidationResult()
     hashtags = hashtags or []
 
-    # 1. Check for conversational/error responses (AI didn't generate proper content)
+    # === HARD REJECTIONS (make post invalid) ===
+
+    # 1. Check for HTML tags (CRITICAL - instant rejection)
+    for label, post in [("LinkedIn", linkedin_post), ("Twitter", twitter_post)]:
+        if post and _HTML_TAG_RE.search(post):
+            result.errors.append(f"{label} post contains raw HTML tags")
+            result.quality_score -= 50
+            result.is_valid = False
+
+    # 2. Check for URLs/links (CRITICAL - instant rejection)
+    for label, post in [("LinkedIn", linkedin_post), ("Twitter", twitter_post)]:
+        if post and _URL_RE.search(post):
+            result.errors.append(f"{label} post contains a URL/link (must be link-free)")
+            result.quality_score -= 40
+            result.is_valid = False
+
+    # 3. Check for HTML entities (sign of unprocessed HTML)
+    for label, post in [("LinkedIn", linkedin_post), ("Twitter", twitter_post)]:
+        if post and _HTML_ENTITY_RE.search(post):
+            result.errors.append(f"{label} post contains HTML entities")
+            result.quality_score -= 30
+            result.is_valid = False
+
+    # 4. Check for conversational/error responses (AI didn't generate proper content)
     conversational_phrases = [
         "i cannot", "i apologize", "i'm sorry", "as an ai",
         "i don't have", "i can't", "unable to", "error occurred",
+        "here is", "here's a", "sure, i'll", "certainly!", "of course!",
     ]
     for phrase in conversational_phrases:
         if phrase in linkedin_post.lower() or phrase in twitter_post.lower():
-            result.errors.append(f"Posts contain error/conversational response: '{phrase}'")
+            result.errors.append(f"Posts contain AI conversational response: '{phrase}'")
             result.quality_score -= 50
             result.is_valid = False
             break
 
-    # 2. Check LinkedIn post exists and has minimum length
+    # 5. Check for section labels (AI framework headings that should be internal only)
+    section_labels = [
+        r'\bHook:', r'\bContext:', r'\bInsight:', r'\bImpact:',
+        r'\bAction:', r'\bEngagement:', r'\bCTA:',
+        r'\[Write\b', r'\[Insert\b', r'\[Add\b', r'\[Your\b',
+    ]
+    for pattern in section_labels:
+        if linkedin_post and re.search(pattern, linkedin_post, re.IGNORECASE):
+            result.errors.append(f"LinkedIn post contains framework label: {pattern}")
+            result.quality_score -= 30
+            result.is_valid = False
+            break
+
+    # 6. Check for gibberish / broken text
+    for label, post in [("LinkedIn", linkedin_post), ("Twitter", twitter_post)]:
+        if post and _is_gibberish(post):
+            result.errors.append(f"{label} post contains gibberish or broken text")
+            result.quality_score -= 30
+            result.is_valid = False
+
+    # 7. LANGUAGE CHECK - ensure posts are English only
+    for label, post in [("LinkedIn", linkedin_post), ("Twitter", twitter_post)]:
+        if post:
+            lang_result = _check_english(post)
+            if not lang_result["is_english"]:
+                result.errors.append(f"{label} post contains non-English text: {lang_result['reason']}")
+                result.quality_score -= 40
+                result.is_valid = False
+
+    # === LENGTH CHECKS ===
+
+    # 8. Check LinkedIn post exists and meets minimum length
     if not linkedin_post or len(linkedin_post.strip()) < 50:
-        result.errors.append(f"LinkedIn post too short ({len(linkedin_post)} chars, minimum 50)")
+        result.errors.append(f"LinkedIn post too short ({len(linkedin_post) if linkedin_post else 0} chars)")
         result.quality_score -= 30
         result.is_valid = False
 
-    # 3. Check Twitter post exists and has minimum length
-    if not twitter_post or len(twitter_post.strip()) < 20:
-        result.errors.append(f"Twitter post too short ({len(twitter_post)} chars, minimum 20)")
-        result.quality_score -= 30
-        result.is_valid = False
-
-    # 4. Validate LinkedIn word count (100-500 words target)
     linkedin_words = len(linkedin_post.split()) if linkedin_post else 0
     if linkedin_words < 50:
-        result.errors.append(f"LinkedIn post too short: {linkedin_words} words (minimum 50)")
+        result.errors.append(f"LinkedIn post too few words: {linkedin_words} (minimum 50)")
         result.quality_score -= 20
         result.is_valid = False
     elif linkedin_words > 500:
-        result.warnings.append(f"LinkedIn post is long: {linkedin_words} words (recommended max 500)")
+        result.warnings.append(f"LinkedIn post is long: {linkedin_words} words")
         result.quality_score -= 5
 
-    # 5. Validate Twitter post length
+    # 9. Check Twitter post length
+    if not twitter_post or len(twitter_post.strip()) < 20:
+        result.errors.append(f"Twitter post too short ({len(twitter_post) if twitter_post else 0} chars)")
+        result.quality_score -= 30
+        result.is_valid = False
     if twitter_post and len(twitter_post) > 280:
         result.errors.append(f"Twitter post too long: {len(twitter_post)} chars (max 280)")
         result.quality_score -= 20
         result.is_valid = False
 
-    # 6. Check for placeholder text
-    placeholders = ["[insert", "[add", "[your", "placeholder", "example text", "lorem ipsum"]
-    for placeholder in placeholders:
-        if placeholder in linkedin_post.lower() or placeholder in twitter_post.lower():
-            result.errors.append(f"Posts contain placeholder text: '{placeholder}'")
-            result.quality_score -= 25
-            result.is_valid = False
+    # === QUALITY CHECKS (warnings, reduce score but don't reject) ===
 
-    # 7. Check for hashtags in LinkedIn post
+    # 10. Check for hashtags
     if linkedin_post and "#" not in linkedin_post:
         result.warnings.append("LinkedIn post missing hashtags")
         result.quality_score -= 5
-
-    # 8. Check for hashtags in Twitter post
     if twitter_post and "#" not in twitter_post:
         result.warnings.append("Twitter post missing hashtags")
         result.quality_score -= 5
 
-    # 9. Check for emojis (nice to have)
-    has_emoji = bool(re.search(r"[\U0001F300-\U0001F9FF]", linkedin_post))
+    # 11. Check for emojis
+    has_emoji = bool(re.search(r'[\U0001F300-\U0001F9FF]', linkedin_post)) if linkedin_post else False
     if not has_emoji and linkedin_post:
-        result.warnings.append("LinkedIn post may benefit from emojis")
+        result.warnings.append("LinkedIn post could use emojis for engagement")
         result.quality_score -= 3
 
-    # 10. LANGUAGE CHECK - ensure posts are English only
-    if linkedin_post:
-        lang_result = _check_english(linkedin_post)
-        if not lang_result["is_english"]:
-            result.errors.append(f"LinkedIn post contains non-English text: {lang_result['reason']}")
-            result.quality_score -= 40
-            result.is_valid = False
-
-    if twitter_post:
-        lang_result = _check_english(twitter_post)
-        if not lang_result["is_english"]:
-            result.errors.append(f"Twitter post contains non-English text: {lang_result['reason']}")
-            result.quality_score -= 40
-            result.is_valid = False
-
-    # 11. GRAMMAR CHECK - basic quality checks
+    # 12. GRAMMAR CHECK
     if linkedin_post:
         grammar_issues = _check_grammar(linkedin_post)
-        if grammar_issues:
-            for issue in grammar_issues:
-                result.warnings.append(f"Grammar: {issue}")
-            result.quality_score -= min(len(grammar_issues) * 3, 15)
+        for issue in grammar_issues:
+            result.warnings.append(f"Grammar: {issue}")
+        result.quality_score -= min(len(grammar_issues) * 3, 15)
 
     if twitter_post:
         grammar_issues = _check_grammar(twitter_post)
-        if grammar_issues:
-            for issue in grammar_issues:
-                result.warnings.append(f"Grammar (Twitter): {issue}")
-            result.quality_score -= min(len(grammar_issues) * 3, 10)
-
-    # 12. Check for unwanted links/URLs (should not appear in posts)
-    url_pattern = re.compile(r'https?://\S+|www\.\S+', re.IGNORECASE)
-    if linkedin_post and url_pattern.search(linkedin_post):
-        result.warnings.append("LinkedIn post contains a URL (should be link-free)")
-        result.quality_score -= 10
-    if twitter_post and url_pattern.search(twitter_post):
-        result.warnings.append("Twitter post contains a URL (should be link-free)")
-        result.quality_score -= 10
-
-    # 13. Check for gibberish / broken text
-    if linkedin_post and _is_gibberish(linkedin_post):
-        result.errors.append("LinkedIn post appears to contain gibberish or broken text")
-        result.quality_score -= 30
-        result.is_valid = False
+        for issue in grammar_issues:
+            result.warnings.append(f"Grammar (Twitter): {issue}")
+        result.quality_score -= min(len(grammar_issues) * 3, 10)
 
     # Ensure score doesn't go below 0
     result.quality_score = max(0.0, result.quality_score)
@@ -147,7 +205,6 @@ def validate_posts(
 
 def _check_english(text: str) -> dict:
     """Check if text is in English by detecting non-Latin script characters."""
-    # CJK, Arabic, Cyrillic, Devanagari, Thai, Korean, Japanese
     non_latin = re.compile(
         r'[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af'
         r'\u0600-\u06ff\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff]'
@@ -159,10 +216,7 @@ def _check_english(text: str) -> dict:
 
 
 def _check_grammar(text: str) -> list[str]:
-    """Basic grammar and quality checks for generated posts.
-
-    Returns a list of grammar issue descriptions.
-    """
+    """Grammar and quality checks for generated posts."""
     issues = []
 
     # Strip hashtags and emojis for analysis
@@ -174,18 +228,18 @@ def _check_grammar(text: str) -> list[str]:
     if repeated:
         issues.append(f"Repeated words: {', '.join(set(repeated)[:3])}")
 
-    # Check for very long sentences (>50 words without punctuation)
+    # Check for very long sentences (>60 words without punctuation)
     sentences = re.split(r'[.!?]\s', clean)
     for sent in sentences:
         word_count = len(sent.split())
         if word_count > 60:
-            issues.append(f"Very long sentence ({word_count} words) - may be hard to read")
+            issues.append(f"Very long sentence ({word_count} words)")
             break
 
     # Check for missing spaces after punctuation
     missing_space = re.findall(r'[.!?,][A-Z]', clean)
     if len(missing_space) > 2:
-        issues.append("Missing spaces after punctuation in multiple places")
+        issues.append("Missing spaces after punctuation")
 
     # Check for unclosed parentheses or brackets
     if clean.count('(') != clean.count(')'):
@@ -193,21 +247,28 @@ def _check_grammar(text: str) -> list[str]:
     if clean.count('[') != clean.count(']'):
         issues.append("Unclosed brackets")
 
-    # Check for excessive CAPS (more than 30% of alphabetic characters)
+    # Check for excessive CAPS (more than 40% uppercase)
     alpha_chars = re.findall(r'[A-Za-z]', clean)
     if alpha_chars:
         upper_ratio = sum(1 for c in alpha_chars if c.isupper()) / len(alpha_chars)
         if upper_ratio > 0.40:
-            issues.append("Excessive use of ALL CAPS (may look spammy)")
+            issues.append("Excessive ALL CAPS usage")
 
     # Check for broken encoding / mojibake patterns
     mojibake_patterns = [
-        r'Ã¢\u20ac', r'â€™', r'â€"', r'â€œ', r'â€\x9d',
-        r'Ã©', r'Ã¨', r'Ã¼', r'\u00c3', r'\u00e2\u20ac',
+        'Ã¢', 'â€™', 'â€"', 'â€œ', 'â€\x9d',
+        'Ã©', 'Ã¨', 'Ã¼',
     ]
     for pattern in mojibake_patterns:
         if pattern in text:
-            issues.append("Broken character encoding detected (mojibake)")
+            issues.append("Broken character encoding (mojibake)")
+            break
+
+    # Check for CSS/code artifacts
+    code_artifacts = ['class=', 'style=', 'src=', 'alt=', 'href=', 'width=', 'height=']
+    for artifact in code_artifacts:
+        if artifact in text:
+            issues.append(f"Contains code artifact: {artifact}")
             break
 
     return issues
@@ -215,7 +276,7 @@ def _check_grammar(text: str) -> list[str]:
 
 def _is_gibberish(text: str) -> bool:
     """Detect if text is gibberish or badly broken content."""
-    # Check for high ratio of special/non-printable characters
+    # Check for high ratio of non-printable characters
     printable = sum(1 for c in text if c.isprintable() or c in '\n\r\t')
     if len(text) > 0 and printable / len(text) < 0.85:
         return True
@@ -224,9 +285,16 @@ def _is_gibberish(text: str) -> bool:
     if re.search(r'[bcdfghjklmnpqrstvwxyz]{8,}', text, re.IGNORECASE):
         return True
 
-    # Check if text has very few real words (less than 30% dictionary-like)
+    # Check if text has very few real words
     words = re.findall(r'\b[a-zA-Z]{3,}\b', text)
     if len(text) > 100 and len(words) < 5:
         return True
+
+    # Check for repeated phrases (sign of AI loop)
+    sentences = [s.strip() for s in re.split(r'[.!?\n]', text) if len(s.strip()) > 20]
+    if len(sentences) > 3:
+        unique = set(sentences)
+        if len(unique) < len(sentences) * 0.5:
+            return True
 
     return False

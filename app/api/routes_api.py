@@ -75,6 +75,7 @@ def get_overview(db: SheetsDB = Depends(get_sheets_db)):
                 "used_fallback": last_run["used_fallback"] if last_run else False,
             } if last_run else None,
             "next_run": next_run.isoformat() if next_run else None,
+            "schedule_cron": p["schedule_cron"],
             "today_posts": today_posts,
             "total_posts": total_posts,
             "total_articles": total_articles,

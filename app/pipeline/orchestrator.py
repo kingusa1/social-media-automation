@@ -16,7 +16,7 @@ from app.pipeline.scorer import score_articles, select_best
 from app.pipeline.content_extractor import extract_article_content
 from app.pipeline.ai_generator import generate_posts
 from app.pipeline.post_parser import parse_ai_output
-from app.pipeline.post_validator import validate_posts
+from app.pipeline.post_validator import validate_posts, sanitize_post
 from app.pipeline.fallback_templates import generate_fallback_posts
 from app.pipeline.language_filter import filter_english_only
 
@@ -246,6 +246,24 @@ def run_pipeline(project_id: str, trigger_type: str, db: SheetsDB,
                     "completed_at": datetime.now(timezone.utc).isoformat(),
                 })
                 return db.get_pipeline_run(run_id)
+
+        # --- FINAL SAFETY NET: sanitize ALL posts before saving/publishing ---
+        # Strips any remaining HTML tags, URLs, entities no matter the source.
+        linkedin_post = sanitize_post(linkedin_post)
+        twitter_post = sanitize_post(twitter_post)
+
+        # Final length check after sanitization
+        if not linkedin_post or len(linkedin_post.strip()) < 30:
+            log_step("safety_net", "error", "LinkedIn post empty or too short after sanitization")
+            _save_run(run_id, {
+                "status": "failed",
+                "error_message": "Post content invalid after safety sanitization",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            })
+            return db.get_pipeline_run(run_id)
+
+        log_step("safety_net", "success",
+                 f"Posts sanitized - LinkedIn: {len(linkedin_post)} chars, Twitter: {len(twitter_post)} chars")
 
         # Save generated posts
         li_post_id = db.insert_generated_post({
