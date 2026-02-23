@@ -55,18 +55,33 @@ def _build_system_prompt(brand_voice: str) -> str:
 === CRITICAL RULES ===
 
 1. Write NATURAL, flowing posts. NEVER include section labels like "Hook:", "Context:", "Insight:", "Impact:", "Action:", "Engagement:" in the output. These are internal guidelines ONLY.
-2. The LinkedIn post should read like a real professional wrote it - no frameworks visible, no template feel.
+2. The LinkedIn post should read like a real person breaking exciting news - bold, energetic, thought-provoking.
 3. Use line breaks between paragraphs for readability.
-4. Hashtags go at the very end on their own line, using # format (e.g. #AI #Automation).
+4. Use emojis strategically to add energy (rocket, fire, brain, lightning bolt, pointing down, etc).
+5. Hashtags go at the very end on their own line, using # format (e.g. #AI #Automation).
+6. NEVER include article links or URLs in the LinkedIn post. NO links at all.
+7. NEVER include article links or URLs in the Twitter post. NO links at all.
+
+=== LINKEDIN POST STYLE ===
+
+Write like you are BREAKING exciting news to your audience. The post should feel like a newsletter update that:
+- Opens with a bold emoji-powered headline about the news
+- Explains the breakthrough/development with excitement and specific numbers/facts
+- Uses bullet points with emoji bullets to highlight key details
+- Includes a "What this solves" or "The implications are MASSIVE" section showing real-world impact
+- Shows how the company (from brand voice) helps with this
+- Ends with a call-to-action question asking readers to comment + pointing down emoji
+- Uses CAPS for emphasis on key words (e.g. "FOREVER", "MASSIVE", "GAME-CHANGER")
+- Feels like a CEO who is genuinely excited about this news
 
 === OUTPUT FORMAT ===
 
 You MUST output in this exact format:
 
 ---LINKEDIN---
-[Write a natural, professional LinkedIn post - 200-300 words. NO section labels.]
+[Write an energetic, news-breaking LinkedIn post - 200-400 words. NO links. NO URLs. Use emojis, bullet points, bold statements.]
 ---TWITTER---
-[Write your Twitter/X post here - under 250 characters]
+[Write your Twitter/X post here - under 250 characters. NO links. NO URLs. Punchy and exciting.]
 ---END---
 
 === DO NOT SKIP EITHER POST ==="""
@@ -74,7 +89,7 @@ You MUST output in this exact format:
 
 def _build_user_prompt(
     title: str,
-    url: str,
+    _url: str,
     description: str,
     content: str,
 ) -> str:
@@ -82,11 +97,12 @@ def _build_user_prompt(
     return f"""Create engaging social media posts for this news article:
 
 Title: {title}
-Link: {url}
 Description: {description[:500] if description else 'N/A'}
 Article Content: {content[:2500] if content else 'N/A'}
 
-Create 2 powerful, execution-focused social posts that will drive engagement and establish thought leadership. Include the article link in the LinkedIn post."""
+Create 2 powerful, news-breaking social posts that will drive engagement and establish thought leadership.
+
+IMPORTANT: Do NOT include any links or URLs in either post. Write the posts as pure content with no links."""
 
 
 def _call_ai(

@@ -1,7 +1,7 @@
 """Template-based fallback posts when AI generation fails or validation rejects the output.
 
 Provides multiple templates per project for variety.
-Faithfully replicates the n8n Create Fallback Posts node logic.
+No links in any posts - pure content only.
 """
 import random
 import logging
@@ -9,100 +9,189 @@ import logging
 logger = logging.getLogger(__name__)
 
 INFINITEO_LINKEDIN_TEMPLATES = [
-    """{emoji} {title}
+    """{emoji} {title} - This Changes EVERYTHING!
 
-The landscape of business automation continues to evolve at an unprecedented pace. This latest development highlights key trends that forward-thinking leaders need to understand.
+
+
+Most people aren't paying attention to this. But if you're in business, you NEED to know what just happened.
+
+
 
 {description}
 
-At Infiniteo, we're committed to staying at the forefront of automation innovation. Our mission is to liberate businesses from manual workflows and empower them to focus on what truly matters - strategy and growth.
 
-Key takeaways:
-- Automation is transforming how organizations operate
-- Strategic execution beats manual processes every time
-- The future belongs to those who automate now
 
-This is exactly why we exist - to empower businesses with the automation they need to thrive.
+Here's why this is a GAME-CHANGER:
 
-Read the full article: {link}
+{bullet} It fundamentally shifts how businesses operate
+{bullet} Companies that adapt NOW will dominate their market
+{bullet} Manual workflows just became obsolete overnight
 
-What's your take on this development? How is your organization embracing automation?
+
+
+What this solves:
+
+- Businesses wasting hours on repetitive tasks
+- Teams drowning in manual processes
+- Organizations falling behind competitors who automate
+
+
+
+At Infiniteo, we help businesses turn exactly these breakthroughs into real automation. We architect end-to-end systems that eliminate manual work and let your team focus on what actually moves the needle.
+
+
+
+This isn't just news. It's the future arriving ahead of schedule.
+
+
+
+Who else sees how BIG this is? Drop a comment below! {down}
+
+
 
 #Infiniteo #Automation #AI #BusinessAutomation #DigitalTransformation #WorkflowAutomation""",
 
-    """{emoji} {title}
+    """{emoji} BREAKING: {title}
 
-Another signal that the automation revolution is accelerating. For business leaders still relying on manual processes, the gap is widening.
+
+
+I just came across something that every business leader needs to see.
+
+
 
 {description}
 
-At Infiniteo, we see this every day - organizations that automate early gain compounding advantages. Those that wait fall further behind.
 
-The question isn't whether to automate. It's how fast you can move.
 
-Read more: {link}
+The implications are MASSIVE:
 
-Are you leading or lagging in automation adoption?
+{bullet} Efficiency gains that were impossible just months ago
+{bullet} A completely new approach to business operations
+{bullet} The automation gap between leaders and laggards just widened
+
+
+
+What does this solve for YOUR business?
+
+- Eliminates bottlenecks in your workflow
+- Frees your team to focus on strategy, not busywork
+- Gives you a competitive edge that compounds over time
+
+
+
+This is exactly why we built Infiniteo - to help organizations harness these breakthroughs BEFORE their competitors do. We don't just follow trends. We turn them into operational advantage.
+
+
+
+The question isn't IF you should automate. It's how fast you can move.
+
+
+
+What's the #1 manual process holding YOUR business back? Let's discuss! {down}
+
+
 
 #Infiniteo #Automation #BusinessTransformation #AI #ProcessOptimization""",
 ]
 
 INFINITEO_TWITTER_TEMPLATES = [
-    "{emoji} {short_title}\n\nAutomation isn't optional anymore. It's the new baseline.\n\n{link}\n\n#Infiniteo #Automation #AI",
-    "{emoji} {short_title}\n\nManual workflows are the bottleneck. Automation is the breakthrough.\n\n{link}\n\n#Infiniteo #BusinessAutomation",
-    "{emoji} Big moves in automation. {short_title}\n\n{link}\n\n#Infiniteo #AI #Automation",
+    "{emoji} {short_title}\n\nThis changes EVERYTHING for business automation. The companies that move NOW will dominate.\n\n#Infiniteo #Automation #AI",
+    "{emoji} BREAKING: {short_title}\n\nManual workflows just became obsolete. The future is HERE.\n\n#Infiniteo #BusinessAutomation",
+    "{emoji} {short_title}\n\nThe automation revolution just accelerated. Are you ready?\n\n#Infiniteo #AI #Automation",
 ]
 
 YOUROPS_LINKEDIN_TEMPLATES = [
-    """{emoji} {title}
+    """{emoji} {title} - Ops Teams, Pay Attention!
 
-The ops landscape continues to evolve rapidly. This development is particularly relevant for teams focused on reliability and operational excellence.
+
+
+This is a BIG deal for anyone running production infrastructure.
+
+
 
 {description}
 
-At YourOps, we understand that operational excellence isn't just about tools - it's about building reliable systems that scale with your business.
 
-Key operational insights:
-- Reliability at scale requires intentional practices
-- Automation reduces toil and improves consistency
-- Observability is the foundation of operational intelligence
 
-Read the full article: {link}
+Why this matters NOW:
 
-How is your ops team adapting to these changes?
+{bullet} Reliability standards just got raised
+{bullet} Teams that adopt this will see fewer incidents
+{bullet} The gap between good ops and great ops just widened
+
+
+
+What this solves:
+
+- Alert fatigue and incident overload
+- Inconsistent deployment pipelines
+- Infrastructure that doesn't scale with your business
+
+
+
+At YourOps, we help teams build operational foundations that actually hold up under pressure. We've seen firsthand how the right systems turn chaotic ops into calm, predictable operations.
+
+
+
+The best ops teams don't just react. They build systems that prevent problems before they happen.
+
+
+
+What's the biggest ops challenge your team is facing right now? {down}
+
+
 
 #YourOps #DevOps #ITOps #SRE #CloudOps #Infrastructure #OperationalExcellence""",
 
-    """{emoji} {title}
+    """{emoji} BREAKING: {title}
 
-Worth reading for every ops team. The patterns discussed here are reshaping how we think about system reliability and operational efficiency.
+
+
+Every SRE and ops engineer needs to see this.
+
+
 
 {description}
 
-At YourOps, we believe that great operations is the backbone of every successful technology organization. This is exactly the kind of insight that drives better operational outcomes.
 
-Read more: {link}
 
-What operational challenges are you solving right now?
+The implications are huge:
+
+{bullet} A new standard for operational excellence
+{bullet} Better reliability with less manual toil
+{bullet} Smarter incident response and prevention
+
+
+
+At YourOps, we believe great operations is the backbone of every successful tech organization. This is exactly the kind of shift that separates world-class ops from the rest.
+
+
+
+How is your team adapting to changes like this? {down}
+
+
 
 #YourOps #DevOps #SRE #CloudOps #PlatformEngineering #Kubernetes""",
 ]
 
 YOUROPS_TWITTER_TEMPLATES = [
-    "{emoji} {short_title}\n\nReliability isn't luck. It's engineering.\n\n{link}\n\n#YourOps #DevOps #SRE",
-    "{emoji} {short_title}\n\nOps teams, take note.\n\n{link}\n\n#YourOps #ITOps #CloudOps",
-    "{emoji} Ops insight: {short_title}\n\n{link}\n\n#YourOps #DevOps #Infrastructure",
+    "{emoji} {short_title}\n\nReliability isn't luck. It's engineering. This changes the game for ops teams.\n\n#YourOps #DevOps #SRE",
+    "{emoji} BREAKING: {short_title}\n\nOps teams, take note. This is BIG.\n\n#YourOps #ITOps #CloudOps",
+    "{emoji} {short_title}\n\nThe future of infrastructure just shifted. Are your ops ready?\n\n#YourOps #DevOps #Infrastructure",
 ]
 
 EMOJIS = {
-    "infiniteo": ["🚀", "⚡", "🎯", "💡", "🔗", "🏗️"],
-    "yourops": ["🔧", "⚙️", "📊", "🛡️", "🔍", "💻"],
+    "infiniteo": ["🚀", "⚡", "🎯", "💡", "🔗", "🏗️", "🔥", "🤯", "💥"],
+    "yourops": ["🔧", "⚙️", "📊", "🛡️", "🔍", "💻", "🔥", "⚡"],
 }
+
+BULLET_EMOJIS = ["•", "🔹", "⚡", "✅", "🎯"]
+DOWN_EMOJIS = ["👇", "⬇️"]
 
 
 def generate_fallback_posts(
     article_title: str,
-    article_url: str,
+    _article_url: str,
     article_description: str,
     project_id: str,
 ) -> tuple[str, str]:
@@ -111,15 +200,18 @@ def generate_fallback_posts(
     Returns: (linkedin_post, twitter_post)
     """
     emoji = random.choice(EMOJIS.get(project_id, ["📢"]))
+    bullet = random.choice(BULLET_EMOJIS)
+    down = random.choice(DOWN_EMOJIS)
     short_title = article_title[:120] if article_title else "Latest Industry Update"
-    description = article_description[:200] + "..." if article_description and len(article_description) > 200 else (article_description or "")
+    description = article_description[:300] + "..." if article_description and len(article_description) > 300 else (article_description or "")
 
     template_vars = {
         "emoji": emoji,
         "title": article_title or "Industry Update",
         "short_title": short_title,
-        "link": article_url or "",
         "description": description,
+        "bullet": bullet,
+        "down": down,
     }
 
     if project_id == "infiniteo":
