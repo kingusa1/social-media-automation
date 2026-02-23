@@ -6,20 +6,16 @@ non-English content, and common AI generation artifacts.
 import logging
 import re
 
+from bs4 import BeautifulSoup
+
 logger = logging.getLogger(__name__)
 
-# HTML tag pattern - complete tags like <div>, <img src="...">
-_HTML_TAG_COMPLETE = re.compile(r'<[a-zA-Z/][^>]*>')
-# Incomplete/truncated tags like <img alt="... (no closing >) from string truncation
-_HTML_TAG_PARTIAL = re.compile(r'<[a-zA-Z][^>]{5,}$', re.MULTILINE)
-# HTML attribute fragments that leak from truncated tags (class="...", src="...", alt="...")
-_HTML_ATTR_RE = re.compile(r'\b(?:class|style|src|alt|href|width|height|id)=["\'][^"\']*["\']?', re.IGNORECASE)
-# Any remaining angle-bracket content that looks like HTML
-_HTML_ANGLE_RE = re.compile(r'<[a-zA-Z/].*?(?:>|$)', re.DOTALL)
 # URL/link pattern
 _URL_RE = re.compile(r'https?://\S+|www\.\S+|bit\.ly/\S+', re.IGNORECASE)
 # HTML entities
 _HTML_ENTITY_RE = re.compile(r'&(?:amp|lt|gt|quot|nbsp|#\d+|#x[0-9a-f]+);', re.IGNORECASE)
+# Detect any HTML (complete or partial tags, attributes)
+_HTML_DETECT_RE = re.compile(r'<[a-zA-Z/][^>]*>?|(?:class|src|alt|href|style)=["\']', re.IGNORECASE)
 
 
 class ValidationResult:
@@ -30,39 +26,51 @@ class ValidationResult:
         self.warnings: list[str] = []
 
 
+def strip_html(text: str) -> str:
+    """Strip HTML from source data (RSS summaries, descriptions).
+
+    Uses BeautifulSoup for bulletproof HTML removal. Use this on raw source
+    data BEFORE it enters templates, NOT on assembled posts.
+    """
+    if not text:
+        return ""
+    return BeautifulSoup(text, "html.parser").get_text(separator=" ", strip=True)
+
+
 def sanitize_post(text: str) -> str:
     """Final safety net: strip any HTML tags, entities, and URLs from a post.
 
     Called on EVERY post (AI-generated and fallback) right before publishing.
-    This ensures nothing with raw HTML or links ever reaches social media.
+    Uses targeted regex that removes HTML without eating surrounding text.
     """
     if not text:
         return text
 
-    # Strip complete HTML tags: <div>, <img src="...">, </span>, etc.
-    clean = _HTML_TAG_COMPLETE.sub('', text)
-    # Strip incomplete/truncated HTML tags: <img alt="... (no closing >)
-    clean = _HTML_TAG_PARTIAL.sub('', clean)
-    # Strip any remaining angle-bracket HTML fragments
-    clean = _HTML_ANGLE_RE.sub('', clean)
-    # Strip leaked HTML attribute fragments: class="...", src="...", alt="..."
-    clean = _HTML_ATTR_RE.sub('', clean)
+    clean = text
 
-    # Decode common HTML entities
+    # 1. Remove complete HTML tags: <div>, <img src="...">, </span>, <br/>, etc.
+    clean = re.sub(r'</?[a-zA-Z][a-zA-Z0-9]*\b[^>]*/?\s*>', '', clean)
+
+    # 2. Remove incomplete/truncated HTML tags (known tag names without closing >)
+    _KNOWN_TAGS = r'div|span|img|a|p|br|h[1-6]|ul|ol|li|table|tr|td|th|iframe|script|style|link|meta|section|article|header|footer|nav|figure|figcaption|source|video|audio'
+    clean = re.sub(r'<(?:' + _KNOWN_TAGS + r')\b[^>\n]*', '', clean, flags=re.IGNORECASE)
+    clean = re.sub(r'</(?:' + _KNOWN_TAGS + r')\b[^>\n]*', '', clean, flags=re.IGNORECASE)
+
+    # 3. Remove leaked HTML attribute fragments: alt="...", class="...", src="..."
+    clean = re.sub(r'\b(?:class|style|src|alt|href|width|height|id|data-\w+)=["\'][^"\']*["\']?\s*', '', clean, flags=re.IGNORECASE)
+
+    # 4. Decode HTML entities
     clean = clean.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
     clean = clean.replace('&quot;', '"').replace('&#39;', "'").replace('&nbsp;', ' ')
     clean = _HTML_ENTITY_RE.sub('', clean)
 
-    # Remove URLs/links
+    # 5. Remove URLs/links
     clean = _URL_RE.sub('', clean)
 
-    # Collapse multiple blank lines into max 2
+    # 6. Clean up whitespace
     clean = re.sub(r'\n{4,}', '\n\n\n', clean)
-    # Collapse multiple spaces
     clean = re.sub(r'  +', ' ', clean)
-    # Remove leading/trailing whitespace on each line
     clean = '\n'.join(line.strip() for line in clean.split('\n'))
-    # Remove leading/trailing whitespace overall
     clean = clean.strip()
 
     return clean
@@ -84,8 +92,7 @@ def validate_posts(
 
     # 1. Check for HTML tags (CRITICAL - instant rejection)
     for label, post in [("LinkedIn", linkedin_post), ("Twitter", twitter_post)]:
-        if post and (_HTML_TAG_COMPLETE.search(post) or _HTML_TAG_PARTIAL.search(post)
-                     or _HTML_ATTR_RE.search(post)):
+        if post and _HTML_DETECT_RE.search(post):
             result.errors.append(f"{label} post contains raw HTML tags or attributes")
             result.quality_score -= 50
             result.is_valid = False

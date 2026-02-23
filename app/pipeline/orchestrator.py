@@ -16,7 +16,7 @@ from app.pipeline.scorer import score_articles, select_best
 from app.pipeline.content_extractor import extract_article_content
 from app.pipeline.ai_generator import generate_posts
 from app.pipeline.post_parser import parse_ai_output
-from app.pipeline.post_validator import validate_posts, sanitize_post
+from app.pipeline.post_validator import validate_posts, sanitize_post, strip_html
 from app.pipeline.fallback_templates import generate_fallback_posts
 from app.pipeline.language_filter import filter_english_only
 
@@ -145,7 +145,7 @@ def run_pipeline(project_id: str, trigger_type: str, db: SheetsDB,
         article_url = best_article.get("url", "")
         # Strip HTML from summary immediately - RSS feeds often include raw HTML
         raw_summary = best_article.get("summary", "")
-        article_summary = sanitize_post(raw_summary) if raw_summary else ""
+        article_summary = strip_html(raw_summary) if raw_summary else ""
         article_score = best_article.get("relevance_score", 0)
         log_step("selection", "success", f"Selected: '{article_title[:80]}' (score: {article_score})")
 
