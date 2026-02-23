@@ -18,6 +18,7 @@ from app.pipeline.ai_generator import generate_posts
 from app.pipeline.post_parser import parse_ai_output
 from app.pipeline.post_validator import validate_posts
 from app.pipeline.fallback_templates import generate_fallback_posts
+from app.pipeline.language_filter import filter_english_only
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,20 @@ def run_pipeline(project_id: str, trigger_type: str, db: SheetsDB) -> dict:
                 })
                 return db.get_pipeline_run(run_id)
 
-        # --- Step 4: URL resolution deferred ---
+        # --- Step 4: Filter English-only articles ---
+        try:
+            before_filter = len(raw_articles)
+            raw_articles = filter_english_only(raw_articles)
+            filtered_count = before_filter - len(raw_articles)
+            if filtered_count > 0:
+                log_step("language_filter", "success",
+                         f"Kept {len(raw_articles)} English articles, filtered out {filtered_count} non-English")
+            else:
+                log_step("language_filter", "success", f"All {len(raw_articles)} articles are English")
+        except Exception as e:
+            log_step("language_filter", "warning", f"Language filter error (using all): {e}")
+
+        # --- Step 4b: URL resolution deferred ---
         log_step("url_resolve", "success", "URL resolution deferred to selected article only")
 
         # --- Step 5: Deduplicate ---

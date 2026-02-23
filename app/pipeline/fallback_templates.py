@@ -191,9 +191,9 @@ DOWN_EMOJIS = ["👇", "⬇️"]
 
 def generate_fallback_posts(
     article_title: str,
-    _article_url: str,
-    article_description: str,
-    project_id: str,
+    article_url: str = "",
+    article_description: str = "",
+    project_id: str = "infiniteo",
 ) -> tuple[str, str]:
     """Generate fallback LinkedIn and Twitter posts from templates.
 
