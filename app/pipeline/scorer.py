@@ -74,11 +74,28 @@ def score_articles(articles: list[dict], scoring_config: dict) -> list[dict]:
     return articles
 
 
-def select_best(articles: list[dict]) -> Optional[dict]:
-    """Return the highest-scoring article."""
+def select_best(articles: list[dict], min_score: float = 15) -> Optional[dict]:
+    """Return the highest-scoring article, rejecting low-relevance ones.
+
+    Args:
+        min_score: Minimum relevance score required. Articles below this
+                   threshold are considered off-topic and rejected.
+                   Default 15 = base(10) + at least one meaningful keyword match.
+    """
     if not articles:
         return None
-    return articles[0]
+
+    best = articles[0]
+    score = best.get("relevance_score", 0)
+
+    if score < min_score:
+        logger.warning(
+            f"Best article '{best.get('title', 'N/A')[:60]}' scored {score} "
+            f"(below minimum {min_score}) - rejected as off-topic"
+        )
+        return None
+
+    return best
 
 
 def _parse_date(date_val) -> Optional[datetime]:

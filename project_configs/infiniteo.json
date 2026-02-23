@@ -16,7 +16,7 @@
     "rss_feeds": [
         "https://www.salesforce.com/blog/category/sales/rss/",
         "https://www.saleshacker.com/feed/",
-        "https://www.axios.com/feeds/feed.rss",
+        "https://venturebeat.com/category/ai/feed/",
         "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
         "https://www.wired.com/feed/tag/ai/latest/rss",
         "https://www.zdnet.com/topic/artificial-intelligence/rss.xml",
@@ -74,7 +74,8 @@
             "24": 2,
             "48": 0
         },
-        "base_score": 10
+        "base_score": 10,
+        "minimum_score": 15
     },
     "schedule_cron": "0 14 * * *",
     "twitter_enabled": false

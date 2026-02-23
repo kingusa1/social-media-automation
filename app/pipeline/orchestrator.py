@@ -131,9 +131,12 @@ def run_pipeline(project_id: str, trigger_type: str, db: SheetsDB,
             scored_articles = articles_to_score
 
         # --- Step 7: Select best article ---
-        best_article = select_best(scored_articles)
+        min_score = scoring_weights.get("minimum_score", 15)
+        best_article = select_best(scored_articles, min_score=min_score)
         if not best_article:
-            log_step("selection", "error", "No article could be selected")
+            log_step("selection", "error",
+                     f"No article met minimum relevance score ({min_score}). "
+                     f"Top score was {scored_articles[0].get('relevance_score', 0) if scored_articles else 0}")
             _save_run(run_id, {
                 "status": "failed",
                 "error_message": "No article selected",

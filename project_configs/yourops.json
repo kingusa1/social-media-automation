@@ -74,8 +74,9 @@
             "24": 2,
             "48": 0
         },
-        "base_score": 10
+        "base_score": 10,
+        "minimum_score": 15
     },
-    "schedule_cron": "0 10 * * 1-5",
+    "schedule_cron": "0 15 * * 1-5",
     "twitter_enabled": false
 }

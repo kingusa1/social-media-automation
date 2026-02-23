@@ -710,6 +710,13 @@ def _seed_projects(db: SheetsDB):
 
         pid = config["id"]
         if pid in existing:
+            # Update scoring weights, RSS feeds, and brand voice from JSON
+            db.update_project(pid, {
+                "scoring_weights": config.get("scoring_weights", {}),
+                "rss_feeds": config.get("rss_feeds", []),
+                "brand_voice": config["brand_voice"],
+            })
+            logger.info(f"Updated project {pid} config from JSON")
             continue
 
         db.insert_project({
