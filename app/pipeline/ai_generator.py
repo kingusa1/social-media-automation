@@ -1,7 +1,8 @@
 """Generate social media posts using Pollinations AI (OpenAI-compatible API).
 
 Uses the openai Python library pointed at the Pollinations endpoint.
-Implements a large model fallback chain with retry logic to maximize reliability.
+Implements a large model fallback chain with a total time budget to stay within
+Vercel serverless function limits.
 """
 import logging
 import time
@@ -10,6 +11,9 @@ from openai import OpenAI
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Total time budget for AI generation (seconds). After this, give up and use fallback.
+AI_TOTAL_BUDGET = 90
 
 
 class AIGeneratedContent:
@@ -33,27 +37,30 @@ def generate_posts(
 
     # Build model chain: primary + all fallbacks
     models = [settings.POLLINATIONS_PRIMARY_MODEL] + settings.fallback_models
+    start_time = time.time()
 
     for i, model in enumerate(models):
-        # Small delay between different models to avoid rate limiting
+        # Check time budget
+        elapsed = time.time() - start_time
+        if elapsed > AI_TOTAL_BUDGET:
+            logger.warning(f"AI time budget exhausted after {elapsed:.0f}s, tried {i} models")
+            break
+
+        # Small delay between models to avoid rate limiting (skip first)
         if i > 0:
-            time.sleep(2)
+            time.sleep(1)
 
-        # Try each model up to 2 times
-        for attempt in range(2):
-            try:
-                response = _call_ai(system_prompt, user_prompt, model, settings)
-                if response and len(response) > 50:
-                    logger.info(f"AI generation succeeded with model: {model} (attempt {attempt + 1})")
-                    return AIGeneratedContent(raw_output=response, model_used=model)
-                else:
-                    logger.warning(f"Model {model} returned insufficient content (attempt {attempt + 1})")
-            except Exception as e:
-                logger.warning(f"Model {model} failed (attempt {attempt + 1}): {e}")
-            if attempt == 0:
-                time.sleep(3)  # Wait before retry on same model
+        try:
+            response = _call_ai(system_prompt, user_prompt, model, settings)
+            if response and len(response) > 50:
+                logger.info(f"AI generation succeeded with model: {model} ({time.time() - start_time:.1f}s)")
+                return AIGeneratedContent(raw_output=response, model_used=model)
+            else:
+                logger.warning(f"Model {model} returned insufficient content")
+        except Exception as e:
+            logger.warning(f"Model {model} failed: {e}")
 
-    logger.error(f"All {len(models)} AI models failed to generate content")
+    logger.error(f"All AI models failed ({time.time() - start_time:.1f}s, tried {min(len(models), i + 1)} models)")
     return None
 
 
@@ -124,7 +131,7 @@ def _call_ai(
     client = OpenAI(
         api_key=settings.POLLINATIONS_API_KEY or "dummy",
         base_url=settings.POLLINATIONS_API_BASE,
-        timeout=45.0,
+        timeout=20.0,
     )
 
     response = client.chat.completions.create(
