@@ -1,8 +1,8 @@
 """Generate social media posts using Pollinations AI (OpenAI-compatible API).
 
-Uses the openai Python library pointed at the Pollinations endpoint.
-Implements a large model fallback chain with a total time budget to stay within
-Vercel serverless function limits.
+Uses the openai Python library pointed at the Pollinations gen API endpoint.
+Primary model: chickytutor (Claude 3.5 Haiku), with fallbacks to other models.
+Implements retry with exponential backoff for rate limiting.
 """
 import logging
 import time
@@ -12,8 +12,12 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Total time budget for AI generation (seconds). After this, give up and use fallback.
+# Total time budget for AI generation (seconds)
 AI_TOTAL_BUDGET = 90
+# Per-model timeout for the API call
+MODEL_TIMEOUT = 25.0
+# Retry delays for 429 rate limit errors (seconds)
+RETRY_DELAYS = [3, 6, 10]
 
 
 class AIGeneratedContent:
@@ -29,38 +33,74 @@ def generate_posts(
     article_content: str,
     brand_voice: str,
 ) -> Optional[AIGeneratedContent]:
-    """Generate LinkedIn + Twitter posts using Pollinations AI with fallback chain."""
+    """Generate LinkedIn + Twitter posts using Pollinations AI.
+
+    Strategy:
+    1. Try primary model (chickytutor) with retries for 429 errors
+    2. If primary fails with non-429 error, try fallback models
+    3. Each model gets proper retry handling
+    """
     settings = get_settings()
 
     system_prompt = _build_system_prompt(brand_voice)
     user_prompt = _build_user_prompt(article_title, article_url, article_description, article_content)
 
-    # Build model chain: primary + all fallbacks
+    # Build model chain: primary + fallbacks
     models = [settings.POLLINATIONS_PRIMARY_MODEL] + settings.fallback_models
     start_time = time.time()
 
-    for i, model in enumerate(models):
-        # Check time budget
+    for model_idx, model in enumerate(models):
         elapsed = time.time() - start_time
         if elapsed > AI_TOTAL_BUDGET:
-            logger.warning(f"AI time budget exhausted after {elapsed:.0f}s, tried {i} models")
+            logger.warning(f"AI time budget exhausted after {elapsed:.0f}s, tried {model_idx} models")
             break
 
-        # Small delay between models to avoid rate limiting (skip first)
-        if i > 0:
-            time.sleep(1)
+        # Try this model with retries for 429 errors
+        for retry in range(len(RETRY_DELAYS) + 1):
+            elapsed = time.time() - start_time
+            if elapsed > AI_TOTAL_BUDGET:
+                break
 
-        try:
-            response = _call_ai(system_prompt, user_prompt, model, settings)
-            if response and len(response) > 50:
-                logger.info(f"AI generation succeeded with model: {model} ({time.time() - start_time:.1f}s)")
-                return AIGeneratedContent(raw_output=response, model_used=model)
-            else:
-                logger.warning(f"Model {model} returned insufficient content")
-        except Exception as e:
-            logger.warning(f"Model {model} failed: {e}")
+            try:
+                response = _call_ai(system_prompt, user_prompt, model, settings)
+                if response and len(response) > 50:
+                    logger.info(f"AI generation succeeded: model={model}, time={time.time() - start_time:.1f}s")
+                    return AIGeneratedContent(raw_output=response, model_used=model)
+                else:
+                    logger.warning(f"Model {model} returned insufficient content ({len(response) if response else 0} chars)")
+                    break  # Don't retry insufficient content, try next model
 
-    logger.error(f"All AI models failed ({time.time() - start_time:.1f}s, tried {min(len(models), i + 1)} models)")
+            except Exception as e:
+                error_str = str(e)
+
+                if "429" in error_str or "rate" in error_str.lower() or "queue" in error_str.lower():
+                    # Rate limited - wait and retry same model
+                    if retry < len(RETRY_DELAYS):
+                        wait = RETRY_DELAYS[retry]
+                        logger.info(f"Model {model} rate limited, waiting {wait}s (retry {retry + 1}/{len(RETRY_DELAYS)})")
+                        time.sleep(wait)
+                        continue
+                    else:
+                        logger.warning(f"Model {model} still rate limited after {len(RETRY_DELAYS)} retries")
+                        break  # Move to next model
+
+                elif "404" in error_str or "not found" in error_str.lower():
+                    # Model doesn't exist - skip immediately
+                    logger.warning(f"Model {model} not found, skipping")
+                    break
+
+                elif "401" in error_str or "auth" in error_str.lower():
+                    # Auth error - skip immediately
+                    logger.error(f"Auth error for model {model}: {error_str[:100]}")
+                    break
+
+                else:
+                    # Other error - log and try next model
+                    logger.warning(f"Model {model} error: {error_str[:100]}")
+                    break
+
+    total_time = time.time() - start_time
+    logger.error(f"All AI models failed after {total_time:.1f}s")
     return None
 
 
@@ -131,7 +171,7 @@ def _call_ai(
     client = OpenAI(
         api_key=settings.POLLINATIONS_API_KEY or "dummy",
         base_url=settings.POLLINATIONS_API_BASE,
-        timeout=20.0,
+        timeout=MODEL_TIMEOUT,
     )
 
     response = client.chat.completions.create(
