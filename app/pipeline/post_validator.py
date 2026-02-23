@@ -8,8 +8,14 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# HTML tag pattern (catches <div>, <img>, <a href>, <span>, etc.)
-_HTML_TAG_RE = re.compile(r'<[a-zA-Z/][^>]*>')
+# HTML tag pattern - complete tags like <div>, <img src="...">
+_HTML_TAG_COMPLETE = re.compile(r'<[a-zA-Z/][^>]*>')
+# Incomplete/truncated tags like <img alt="... (no closing >) from string truncation
+_HTML_TAG_PARTIAL = re.compile(r'<[a-zA-Z][^>]{5,}$', re.MULTILINE)
+# HTML attribute fragments that leak from truncated tags (class="...", src="...", alt="...")
+_HTML_ATTR_RE = re.compile(r'\b(?:class|style|src|alt|href|width|height|id)=["\'][^"\']*["\']?', re.IGNORECASE)
+# Any remaining angle-bracket content that looks like HTML
+_HTML_ANGLE_RE = re.compile(r'<[a-zA-Z/].*?(?:>|$)', re.DOTALL)
 # URL/link pattern
 _URL_RE = re.compile(r'https?://\S+|www\.\S+|bit\.ly/\S+', re.IGNORECASE)
 # HTML entities
@@ -33,8 +39,14 @@ def sanitize_post(text: str) -> str:
     if not text:
         return text
 
-    # Strip HTML tags
-    clean = _HTML_TAG_RE.sub('', text)
+    # Strip complete HTML tags: <div>, <img src="...">, </span>, etc.
+    clean = _HTML_TAG_COMPLETE.sub('', text)
+    # Strip incomplete/truncated HTML tags: <img alt="... (no closing >)
+    clean = _HTML_TAG_PARTIAL.sub('', clean)
+    # Strip any remaining angle-bracket HTML fragments
+    clean = _HTML_ANGLE_RE.sub('', clean)
+    # Strip leaked HTML attribute fragments: class="...", src="...", alt="..."
+    clean = _HTML_ATTR_RE.sub('', clean)
 
     # Decode common HTML entities
     clean = clean.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
@@ -72,8 +84,9 @@ def validate_posts(
 
     # 1. Check for HTML tags (CRITICAL - instant rejection)
     for label, post in [("LinkedIn", linkedin_post), ("Twitter", twitter_post)]:
-        if post and _HTML_TAG_RE.search(post):
-            result.errors.append(f"{label} post contains raw HTML tags")
+        if post and (_HTML_TAG_COMPLETE.search(post) or _HTML_TAG_PARTIAL.search(post)
+                     or _HTML_ATTR_RE.search(post)):
+            result.errors.append(f"{label} post contains raw HTML tags or attributes")
             result.quality_score -= 50
             result.is_valid = False
 
