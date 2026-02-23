@@ -23,8 +23,13 @@ from app.pipeline.language_filter import filter_english_only
 logger = logging.getLogger(__name__)
 
 
-def run_pipeline(project_id: str, trigger_type: str, db: SheetsDB) -> dict:
+def run_pipeline(project_id: str, trigger_type: str, db: SheetsDB,
+                  platforms: list[str] | None = None) -> dict:
     """Execute the full content automation pipeline for a project.
+
+    Args:
+        platforms: If set, only publish to these platforms (e.g. ["linkedin"], ["twitter"]).
+                   None means publish to all configured platforms.
 
     Returns a dict (pipeline run record) with status, articles_fetched, etc.
     """
@@ -267,9 +272,14 @@ def run_pipeline(project_id: str, trigger_type: str, db: SheetsDB) -> dict:
         # --- Steps 14-15: Publish to social media ---
         publish_success = 0
         publish_fail = 0
+        should_linkedin = platforms is None or "linkedin" in platforms
+        should_twitter = platforms is None or "twitter" in platforms
+
+        if platforms:
+            log_step("publish_filter", "success", f"Publishing to platforms: {', '.join(platforms)}")
 
         # Publish LinkedIn
-        linkedin_profiles = db.get_active_profiles(project_id, "linkedin")
+        linkedin_profiles = db.get_active_profiles(project_id, "linkedin") if should_linkedin else []
         for profile in linkedin_profiles:
             try:
                 from app.publishers.linkedin_publisher import publish_to_linkedin
@@ -304,8 +314,8 @@ def run_pipeline(project_id: str, trigger_type: str, db: SheetsDB) -> dict:
                 })
                 log_step(f"linkedin_{profile['account_type']}", "error", f"LinkedIn error: {e}")
 
-        # Publish Twitter (if enabled)
-        if project["twitter_enabled"]:
+        # Publish Twitter (if enabled and in platform filter)
+        if project["twitter_enabled"] and should_twitter:
             try:
                 from app.publishers.twitter_publisher import publish_to_twitter
                 result = publish_to_twitter(twitter_post, project_id)
@@ -328,11 +338,15 @@ def run_pipeline(project_id: str, trigger_type: str, db: SheetsDB) -> dict:
             except Exception as e:
                 publish_fail += 1
                 log_step("twitter", "error", f"Twitter error: {e}")
+        elif not should_twitter:
+            log_step("twitter", "success", "Twitter not in platform filter - skipped")
         else:
             log_step("twitter", "success", "Twitter posting disabled - skipped")
 
-        if not linkedin_profiles:
+        if should_linkedin and not linkedin_profiles:
             log_step("publishing", "warning", "No active LinkedIn profiles - posts saved but not published")
+        elif not should_linkedin:
+            log_step("linkedin", "success", "LinkedIn not in platform filter - skipped")
 
         # --- Step 16: Finalize ---
         if publish_fail > 0 and publish_success > 0:

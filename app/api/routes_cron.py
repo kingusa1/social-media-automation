@@ -22,24 +22,33 @@ def _verify_cron_secret(authorization: str = Header(default="")):
 @router.get("/run/{project_id}")
 def cron_run_pipeline(
     project_id: str,
+    platforms: str = None,
     db: SheetsDB = Depends(get_sheets_db),
     _auth=Depends(_verify_cron_secret),
 ):
-    """Run the pipeline for a project. Called by Vercel Cron Jobs."""
+    """Run the pipeline for a project. Called by Vercel Cron Jobs.
+
+    Args:
+        platforms: Comma-separated platforms to publish to (e.g. "linkedin,twitter").
+                   If not set, publishes to all configured platforms.
+    """
     project = db.get_project(project_id)
     if not project or not project["is_active"]:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    platform_list = [p.strip() for p in platforms.split(",") if p.strip()] if platforms else None
+
     from app.pipeline.orchestrator import run_pipeline
 
     try:
-        result = run_pipeline(project_id, trigger_type="cron", db=db)
-        logger.info(f"Cron pipeline for {project_id} completed: {result['status']}")
+        result = run_pipeline(project_id, trigger_type="cron", db=db, platforms=platform_list)
+        logger.info(f"Cron pipeline for {project_id} completed: {result['status']} (platforms={platform_list})")
         return {
             "status": result["status"],
             "project_id": project_id,
             "articles_fetched": result["articles_fetched"],
             "ai_model_used": result["ai_model_used"],
+            "platforms": platform_list or "all",
         }
     except Exception as e:
         logger.error(f"Cron pipeline for {project_id} failed: {e}")

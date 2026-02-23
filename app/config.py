@@ -31,8 +31,8 @@ class Settings(BaseSettings):
     # Pollinations AI
     POLLINATIONS_API_KEY: str = ""
     POLLINATIONS_API_BASE: str = "https://text.pollinations.ai/openai"
-    POLLINATIONS_PRIMARY_MODEL: str = "chickytutor"
-    POLLINATIONS_FALLBACK_MODELS: str = "openai,mistral,gemini"
+    POLLINATIONS_PRIMARY_MODEL: str = "openai"
+    POLLINATIONS_FALLBACK_MODELS: str = "openai-fast,mistral,gemini,deepseek,openai-large,gemini-fast,grok,kimi,nova-fast,glm,minimax,qwen-coder,claude-fast,claude,chickytutor"
 
     # LinkedIn OAuth2
     LINKEDIN_CLIENT_ID: str = ""

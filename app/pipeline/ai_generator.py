@@ -1,9 +1,10 @@
 """Generate social media posts using Pollinations AI (OpenAI-compatible API).
 
 Uses the openai Python library pointed at the Pollinations endpoint.
-Implements model fallback chain: chickytutor -> openai -> mistral -> gemini.
+Implements a large model fallback chain with retry logic to maximize reliability.
 """
 import logging
+import time
 from typing import Optional
 from openai import OpenAI
 from app.config import get_settings
@@ -30,21 +31,29 @@ def generate_posts(
     system_prompt = _build_system_prompt(brand_voice)
     user_prompt = _build_user_prompt(article_title, article_url, article_description, article_content)
 
-    # Build model chain: primary + fallbacks
+    # Build model chain: primary + all fallbacks
     models = [settings.POLLINATIONS_PRIMARY_MODEL] + settings.fallback_models
 
-    for model in models:
-        try:
-            response = _call_ai(system_prompt, user_prompt, model, settings)
-            if response and len(response) > 50:
-                logger.info(f"AI generation succeeded with model: {model}")
-                return AIGeneratedContent(raw_output=response, model_used=model)
-            else:
-                logger.warning(f"Model {model} returned insufficient content")
-        except Exception as e:
-            logger.warning(f"Model {model} failed: {e}")
+    for i, model in enumerate(models):
+        # Small delay between different models to avoid rate limiting
+        if i > 0:
+            time.sleep(2)
 
-    logger.error("All AI models failed to generate content")
+        # Try each model up to 2 times
+        for attempt in range(2):
+            try:
+                response = _call_ai(system_prompt, user_prompt, model, settings)
+                if response and len(response) > 50:
+                    logger.info(f"AI generation succeeded with model: {model} (attempt {attempt + 1})")
+                    return AIGeneratedContent(raw_output=response, model_used=model)
+                else:
+                    logger.warning(f"Model {model} returned insufficient content (attempt {attempt + 1})")
+            except Exception as e:
+                logger.warning(f"Model {model} failed (attempt {attempt + 1}): {e}")
+            if attempt == 0:
+                time.sleep(3)  # Wait before retry on same model
+
+    logger.error(f"All {len(models)} AI models failed to generate content")
     return None
 
 
@@ -115,7 +124,7 @@ def _call_ai(
     client = OpenAI(
         api_key=settings.POLLINATIONS_API_KEY or "dummy",
         base_url=settings.POLLINATIONS_API_BASE,
-        timeout=30.0,
+        timeout=45.0,
     )
 
     response = client.chat.completions.create(
@@ -124,7 +133,7 @@ def _call_ai(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        max_tokens=1000,
+        max_tokens=1200,
         temperature=0.7,
     )
 
