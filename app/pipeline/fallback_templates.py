@@ -3,10 +3,22 @@
 Provides multiple templates per project for variety.
 No links in any posts - pure content only.
 """
+import re
 import random
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_html(text: str) -> str:
+    """Remove HTML tags and decode common entities from a string."""
+    if not text:
+        return ""
+    clean = re.sub(r"<[^>]+>", " ", text)
+    clean = clean.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    clean = clean.replace("&quot;", '"').replace("&#39;", "'").replace("&nbsp;", " ")
+    clean = re.sub(r"\s+", " ", clean).strip()
+    return clean
 
 INFINITEO_LINKEDIN_TEMPLATES = [
     """{emoji} {title} - This Changes EVERYTHING!
@@ -203,7 +215,8 @@ def generate_fallback_posts(
     bullet = random.choice(BULLET_EMOJIS)
     down = random.choice(DOWN_EMOJIS)
     short_title = article_title[:120] if article_title else "Latest Industry Update"
-    description = article_description[:300] + "..." if article_description and len(article_description) > 300 else (article_description or "")
+    clean_desc = _strip_html(article_description)
+    description = clean_desc[:300] + "..." if clean_desc and len(clean_desc) > 300 else (clean_desc or "")
 
     template_vars = {
         "emoji": emoji,
