@@ -25,7 +25,7 @@
       "schedule": "0 14 * * *"
     },
     {
-      "path": "/api/cron/run/yourops?platforms=linkedin",
+      "path": "/api/cron/run/yourops/linkedin",
       "schedule": "0 15 * * 1-5"
     }
   ]

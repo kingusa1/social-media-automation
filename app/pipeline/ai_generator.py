@@ -13,17 +13,34 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 # Total time budget for AI generation (seconds)
-AI_TOTAL_BUDGET = 90
+AI_TOTAL_BUDGET = 120
 # Per-model timeout for the API call
-MODEL_TIMEOUT = 25.0
+MODEL_TIMEOUT = 30.0
 # Retry delays for 429 rate limit errors (seconds)
-RETRY_DELAYS = [3, 6, 10]
+RETRY_DELAYS = [3, 6, 12]
+# Minimum response length to accept (must contain both post delimiters)
+MIN_RESPONSE_LENGTH = 100
 
 
 class AIGeneratedContent:
     def __init__(self, raw_output: str, model_used: str):
         self.raw_output = raw_output
         self.model_used = model_used
+
+
+def _validate_ai_response(response: str) -> bool:
+    """Check that the AI response contains the expected delimited format with real content."""
+    if not response or len(response) < MIN_RESPONSE_LENGTH:
+        return False
+    # Must contain at least one delimiter indicating structured output
+    has_linkedin = "---LINKEDIN---" in response or "LINKEDIN:" in response
+    has_twitter = "---TWITTER---" in response or "TWITTER:" in response
+    if has_linkedin and has_twitter:
+        return True
+    # Fallback: accept if it's long enough to be a real post (parser handles heuristics)
+    if len(response) > 200:
+        return True
+    return False
 
 
 def generate_posts(
@@ -37,8 +54,9 @@ def generate_posts(
 
     Strategy:
     1. Try primary model (chickytutor) with retries for 429 errors
-    2. If primary fails with non-429 error, try fallback models
-    3. Each model gets proper retry handling
+    2. If primary fails with non-429 error, try fallback models in order
+    3. Each model gets proper retry handling for rate limits
+    4. Validates response contains expected delimited format
     """
     settings = get_settings()
 
@@ -49,11 +67,15 @@ def generate_posts(
     models = [settings.POLLINATIONS_PRIMARY_MODEL] + settings.fallback_models
     start_time = time.time()
 
+    logger.info(f"AI generation starting: models={models}, article='{article_title[:60]}'")
+
     for model_idx, model in enumerate(models):
         elapsed = time.time() - start_time
         if elapsed > AI_TOTAL_BUDGET:
             logger.warning(f"AI time budget exhausted after {elapsed:.0f}s, tried {model_idx} models")
             break
+
+        logger.info(f"Trying model {model_idx + 1}/{len(models)}: {model}")
 
         # Try this model with retries for 429 errors
         for retry in range(len(RETRY_DELAYS) + 1):
@@ -63,11 +85,18 @@ def generate_posts(
 
             try:
                 response = _call_ai(system_prompt, user_prompt, model, settings)
-                if response and len(response) > 50:
-                    logger.info(f"AI generation succeeded: model={model}, time={time.time() - start_time:.1f}s")
+
+                if _validate_ai_response(response):
+                    logger.info(
+                        f"AI generation succeeded: model={model}, "
+                        f"chars={len(response)}, time={time.time() - start_time:.1f}s"
+                    )
                     return AIGeneratedContent(raw_output=response, model_used=model)
                 else:
-                    logger.warning(f"Model {model} returned insufficient content ({len(response) if response else 0} chars)")
+                    logger.warning(
+                        f"Model {model} returned invalid/insufficient content "
+                        f"({len(response) if response else 0} chars)"
+                    )
                     break  # Don't retry insufficient content, try next model
 
             except Exception as e:
@@ -85,22 +114,23 @@ def generate_posts(
                         break  # Move to next model
 
                 elif "404" in error_str or "not found" in error_str.lower():
-                    # Model doesn't exist - skip immediately
                     logger.warning(f"Model {model} not found, skipping")
                     break
 
                 elif "401" in error_str or "auth" in error_str.lower():
-                    # Auth error - skip immediately
-                    logger.error(f"Auth error for model {model}: {error_str[:100]}")
+                    logger.error(f"Auth error for model {model}: {error_str[:150]}")
                     break
 
+                elif "timeout" in error_str.lower() or "timed out" in error_str.lower():
+                    logger.warning(f"Model {model} timed out after {MODEL_TIMEOUT}s")
+                    break  # Move to next model
+
                 else:
-                    # Other error - log and try next model
-                    logger.warning(f"Model {model} error: {error_str[:100]}")
+                    logger.warning(f"Model {model} error: {error_str[:150]}")
                     break
 
     total_time = time.time() - start_time
-    logger.error(f"All AI models failed after {total_time:.1f}s")
+    logger.error(f"All {len(models)} AI models failed after {total_time:.1f}s")
     return None
 
 
@@ -172,6 +202,7 @@ def _call_ai(
         api_key=settings.POLLINATIONS_API_KEY or "dummy",
         base_url=settings.POLLINATIONS_API_BASE,
         timeout=MODEL_TIMEOUT,
+        max_retries=0,  # We handle retries ourselves
     )
 
     response = client.chat.completions.create(
@@ -180,10 +211,13 @@ def _call_ai(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        max_tokens=1200,
+        max_tokens=1500,
         temperature=0.7,
     )
 
     if response.choices and response.choices[0].message.content:
-        return response.choices[0].message.content.strip()
+        content = response.choices[0].message.content.strip()
+        if content:
+            return content
+    logger.warning(f"Model {model} returned empty response")
     return None
