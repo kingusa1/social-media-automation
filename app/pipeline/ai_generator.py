@@ -187,9 +187,14 @@ def _call_ai(
     settings,
 ) -> Optional[str]:
     """Make the actual API call to Pollinations AI with timeout."""
+    # Strip whitespace from settings to prevent trailing newline issues
+    api_key = (settings.POLLINATIONS_API_KEY or "dummy").strip()
+    api_base = settings.POLLINATIONS_API_BASE.strip()
+    model = model.strip()
+
     client = OpenAI(
-        api_key=settings.POLLINATIONS_API_KEY or "dummy",
-        base_url=settings.POLLINATIONS_API_BASE,
+        api_key=api_key,
+        base_url=api_base,
         timeout=MODEL_TIMEOUT,
     )
 
