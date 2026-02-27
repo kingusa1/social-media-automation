@@ -78,5 +78,5 @@
         "minimum_score": 15
     },
     "schedule_cron": "0 14 * * *",
-    "twitter_enabled": false
+    "twitter_enabled": true
 }
