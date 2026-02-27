@@ -1,7 +1,7 @@
 """Generate social media posts using Pollinations AI (OpenAI-compatible API).
 
 Uses the openai Python library pointed at the Pollinations gen API endpoint.
-Primary model: chickytutor (Claude 3.5 Haiku), with fallbacks to other models.
+Primary model: openai (GPT-5 Mini), with fallbacks to mistral, gemini, etc.
 Implements retry with exponential backoff for rate limiting.
 """
 import logging
@@ -36,9 +36,9 @@ def generate_posts(
     """Generate LinkedIn + Twitter posts using Pollinations AI.
 
     Strategy:
-    1. Try primary model (chickytutor) with retries for 429 errors
-    2. If primary fails with non-429 error, try fallback models
-    3. Each model gets proper retry handling
+    1. Try primary model (openai/GPT-5 Mini) with retries for 429 errors
+    2. If primary fails, try fallback models (mistral, gemini, etc.)
+    3. Skip models that return 400/402/404 immediately
     """
     settings = get_settings()
 
@@ -85,13 +85,15 @@ def generate_posts(
                         break  # Move to next model
 
                 elif "404" in error_str or "not found" in error_str.lower():
-                    # Model doesn't exist - skip immediately
                     logger.warning(f"Model {model} not found, skipping")
                     break
 
-                elif "401" in error_str or "auth" in error_str.lower():
-                    # Auth error - skip immediately
-                    logger.error(f"Auth error for model {model}: {error_str[:100]}")
+                elif "400" in error_str or "invalid" in error_str.lower() or "BAD_REQUEST" in error_str:
+                    logger.warning(f"Model {model} invalid/bad request, skipping: {error_str[:100]}")
+                    break
+
+                elif "401" in error_str or "402" in error_str or "auth" in error_str.lower() or "PAYMENT_REQUIRED" in error_str:
+                    logger.error(f"Auth/payment error for model {model}: {error_str[:100]}")
                     break
 
                 else:

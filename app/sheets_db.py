@@ -710,11 +710,12 @@ def _seed_projects(db: SheetsDB):
 
         pid = config["id"]
         if pid in existing:
-            # Update scoring weights, RSS feeds, and brand voice from JSON
+            # Update config from JSON on every startup
             db.update_project(pid, {
                 "scoring_weights": config.get("scoring_weights", {}),
                 "rss_feeds": config.get("rss_feeds", []),
                 "brand_voice": config["brand_voice"],
+                "schedule_cron": config.get("schedule_cron", "0 9 * * 1-5"),
             })
             logger.info(f"Updated project {pid} config from JSON")
             continue
