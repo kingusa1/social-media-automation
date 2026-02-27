@@ -17,7 +17,7 @@ from app.pipeline.content_extractor import extract_article_content
 from app.pipeline.ai_generator import generate_posts
 from app.pipeline.post_parser import parse_ai_output
 from app.pipeline.post_validator import validate_posts, sanitize_post, strip_html
-from app.pipeline.fallback_templates import generate_fallback_posts
+
 from app.pipeline.language_filter import filter_english_only
 
 logger = logging.getLogger(__name__)
@@ -185,72 +185,68 @@ def run_pipeline(project_id: str, trigger_type: str, db: SheetsDB,
 
         content_text = article_content.text if article_content else article_summary
 
-        # --- Step 10: Generate posts via AI ---
+        # --- Step 10: Generate posts via AI (with retry) ---
         linkedin_post = ""
         twitter_post = ""
         used_fallback = False
         ai_model = ""
         quality_score = 0.0
+        MAX_AI_ATTEMPTS = 3
 
-        try:
-            ai_result = generate_posts(
-                article_title=article_title,
-                article_url=article_url,
-                article_description=article_summary,
-                article_content=content_text,
-                brand_voice=project["brand_voice"],
-            )
-            if ai_result:
-                ai_model = ai_result.model_used
-                _save_run(run_id, {"ai_model_used": ai_model})
-                log_step("ai_generation", "success", f"Content generated using model: {ai_model}")
-
-                parsed = parse_ai_output(ai_result.raw_output)
-                linkedin_post = parsed.linkedin_post
-                twitter_post = parsed.twitter_post
-                log_step("parsing", "success",
-                         f"Parsed - LinkedIn: {len(linkedin_post)} chars, Twitter: {len(twitter_post)} chars")
-            else:
-                log_step("ai_generation", "warning", "AI generation returned no content")
-        except Exception as e:
-            log_step("ai_generation", "error", f"AI generation failed: {e}")
-
-        # --- Step 12: Validate posts ---
-        if linkedin_post or twitter_post:
+        for attempt in range(1, MAX_AI_ATTEMPTS + 1):
             try:
-                validation = validate_posts(linkedin_post, twitter_post, hashtags)
-                quality_score = validation.quality_score
-                if validation.is_valid and validation.quality_score >= 70:
-                    log_step("validation", "success", f"Posts valid (score: {validation.quality_score})")
-                else:
-                    log_step("validation", "warning",
-                             f"Validation failed (score: {validation.quality_score}): {validation.errors}")
-                    linkedin_post = ""
-                    twitter_post = ""
-            except Exception as e:
-                log_step("validation", "warning", f"Validation error: {e}")
-
-        # --- Step 13: Fallback if needed ---
-        if not linkedin_post or not twitter_post:
-            try:
-                linkedin_post, twitter_post = generate_fallback_posts(
+                ai_result = generate_posts(
                     article_title=article_title,
                     article_url=article_url,
-                    article_description=article_summary[:200] if article_summary else "",
-                    project_id=project_id,
+                    article_description=article_summary,
+                    article_content=content_text,
+                    brand_voice=project["brand_voice"],
                 )
-                used_fallback = True
-                quality_score = 50.0
-                _save_run(run_id, {"used_fallback": True})
-                log_step("fallback", "success", "Generated fallback template posts")
+                if ai_result:
+                    ai_model = ai_result.model_used
+                    _save_run(run_id, {"ai_model_used": ai_model})
+                    log_step("ai_generation", "success",
+                             f"Attempt {attempt}: generated using {ai_model}")
+
+                    parsed = parse_ai_output(ai_result.raw_output)
+                    linkedin_post = parsed.linkedin_post
+                    twitter_post = parsed.twitter_post
+                    log_step("parsing", "success",
+                             f"Parsed - LinkedIn: {len(linkedin_post)} chars, Twitter: {len(twitter_post)} chars")
+                else:
+                    log_step("ai_generation", "warning", f"Attempt {attempt}: AI returned no content")
+                    continue
             except Exception as e:
-                log_step("fallback", "error", f"Fallback generation failed: {e}")
-                _save_run(run_id, {
-                    "status": "failed",
-                    "error_message": "Both AI and fallback post generation failed",
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
-                })
-                return db.get_pipeline_run(run_id)
+                log_step("ai_generation", "error", f"Attempt {attempt}: AI failed: {e}")
+                continue
+
+            # Validate the generated posts
+            if linkedin_post:
+                try:
+                    validation = validate_posts(linkedin_post, twitter_post, hashtags)
+                    quality_score = validation.quality_score
+                    if validation.is_valid and validation.quality_score >= 70:
+                        log_step("validation", "success", f"Posts valid (score: {validation.quality_score})")
+                        break  # Good posts, exit retry loop
+                    else:
+                        log_step("validation", "warning",
+                                 f"Attempt {attempt} validation failed (score: {validation.quality_score}): "
+                                 f"{validation.errors}")
+                        linkedin_post = ""
+                        twitter_post = ""
+                except Exception as e:
+                    log_step("validation", "warning", f"Validation error: {e}")
+                    break  # Validation crashed, but posts exist - use them
+
+        # --- Step 13: AI-only policy - no fallback templates ---
+        if not linkedin_post:
+            log_step("ai_policy", "error", "AI failed to generate posts - aborting (no fallback templates)")
+            _save_run(run_id, {
+                "status": "failed",
+                "error_message": "AI generation failed - no posts published (fallback templates disabled)",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            })
+            return db.get_pipeline_run(run_id)
 
         # --- FINAL SAFETY NET: sanitize ALL posts before saving/publishing ---
         # Strips any remaining HTML tags, URLs, entities no matter the source.
