@@ -225,7 +225,7 @@ class SheetsDB:
         for col, val in updates.items():
             if col in header:
                 ci = header.index(col) + 1
-                if col in ("hashtags", "rss_feeds", "scoring_weights") and not isinstance(val, str):
+                if col in ("hashtags", "rss_feeds", "scoring_weights", "schedule_cron") and not isinstance(val, str):
                     val = json.dumps(val)
                 elif isinstance(val, bool):
                     val = _to_bool(val)
@@ -716,6 +716,8 @@ def _seed_projects(db: SheetsDB):
                 "rss_feeds": config.get("rss_feeds", []),
                 "brand_voice": config["brand_voice"],
                 "schedule_cron": config.get("schedule_cron", "0 9 * * 1-5"),
+                "twitter_enabled": config.get("twitter_enabled", False),
+                "hashtags": config.get("hashtags", []),
             })
             logger.info(f"Updated project {pid} config from JSON")
             continue

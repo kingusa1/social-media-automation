@@ -1,9 +1,11 @@
 """Cron endpoints for Vercel scheduled pipeline triggers.
 
 Uses a single hourly cron that checks each project's schedule_cron from
-Google Sheets. This allows schedule changes from the dashboard to take
-effect without redeploying.
+Google Sheets. Supports per-platform scheduling:
+  - Simple cron: "0 14 * * *" → runs all platforms
+  - JSON array: [{"cron": "0 15 * * 1,3,5", "platforms": ["linkedin"]}, ...] → per-platform
 """
+import json
 import logging
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Header
@@ -22,6 +24,34 @@ def _verify_cron_secret(authorization: str = Header(default="")):
         expected = f"Bearer {settings.CRON_SECRET}"
         if authorization != expected:
             raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _parse_schedules(project: dict) -> list[dict]:
+    """Parse schedule_cron into a list of schedule entries.
+
+    Supports two formats:
+    1. Simple cron string: "0 15 * * 1-5" → all platforms
+    2. JSON array: [{"cron": "0 15 * * 1,3,5", "platforms": ["linkedin"]}, ...]
+    """
+    raw = project.get("schedule_cron", "")
+    if not raw:
+        return []
+
+    # Already a list (e.g. from _parse_json in sheets_db)
+    if isinstance(raw, list):
+        return raw
+
+    # Try JSON array format
+    if isinstance(raw, str) and raw.strip().startswith("["):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+    # Simple cron string - applies to all platforms
+    return [{"cron": str(raw), "platforms": None}]
 
 
 def _cron_matches_now(cron_expr: str, now: datetime) -> bool:
@@ -43,7 +73,7 @@ def _cron_matches_now(cron_expr: str, now: datetime) -> bool:
         if now.hour != cron_hour:
             return False
 
-        # Check day of week (0=Sun in cron, but Python isoweekday 1=Mon..7=Sun)
+        # Check day of week (0=Sun in cron, but Python weekday() 0=Mon..6=Sun)
         if dow_spec != "*":
             py_dow = now.weekday()  # 0=Mon..6=Sun
             # Convert to cron format: 0=Sun,1=Mon..6=Sat
@@ -67,7 +97,7 @@ def _cron_matches_now(cron_expr: str, now: datetime) -> bool:
         return False
 
 
-def _ran_recently(db: SheetsDB, project_id: str, hours: float = 2) -> bool:
+def _ran_recently(db: SheetsDB, project_id: str, hours: float = 1.5) -> bool:
     """Check if the project ran within the last N hours to prevent duplicates."""
     runs = db.get_pipeline_runs(project_id=project_id, limit=1)
     if not runs:
@@ -103,8 +133,11 @@ def cron_check_all(
     """Smart scheduler: runs every hour, checks which projects are due.
 
     Reads each project's schedule_cron from Google Sheets and runs the
-    pipeline only if the current UTC hour/day matches. Prevents duplicate
-    runs by checking if the project already ran in the last 2 hours.
+    pipeline only if the current UTC hour/day matches. Supports per-platform
+    scheduling (different crons for LinkedIn vs Twitter).
+
+    For per-platform schedules, all platforms due at the same hour are
+    combined into a single pipeline run for efficiency.
     """
     now = datetime.now(timezone.utc)
     projects = db.get_active_projects()
@@ -115,30 +148,57 @@ def cron_check_all(
 
     for project in projects:
         pid = project["id"]
-        cron_expr = project.get("schedule_cron", "")
+        schedules = _parse_schedules(project)
 
-        if not cron_expr:
-            logger.warning(f"Project {pid} has no schedule_cron, skipping")
+        if not schedules:
+            logger.warning(f"Project {pid} has no schedule, skipping")
             results.append({"project_id": pid, "status": "skipped", "reason": "no schedule"})
             continue
 
-        if not _cron_matches_now(cron_expr, now):
+        # Collect all platforms due at this hour
+        platforms_due = set()
+        all_platforms = False
+        matched_crons = []
+
+        for sched in schedules:
+            cron_expr = sched.get("cron", "")
+            if _cron_matches_now(cron_expr, now):
+                plats = sched.get("platforms")
+                if plats is None:
+                    # No platform filter = all platforms
+                    all_platforms = True
+                    matched_crons.append(cron_expr)
+                    break
+                else:
+                    platforms_due.update(plats)
+                    matched_crons.append(f"{cron_expr} ({','.join(plats)})")
+
+        if not all_platforms and not platforms_due:
             results.append({"project_id": pid, "status": "skipped",
-                           "reason": f"not scheduled (cron: {cron_expr})"})
+                           "reason": "not scheduled now"})
             continue
 
-        if _ran_recently(db, pid, hours=2):
+        # Check for recent runs to prevent duplicates
+        if _ran_recently(db, pid, hours=1.5):
             logger.info(f"Project {pid} already ran recently, skipping")
             results.append({"project_id": pid, "status": "skipped", "reason": "ran recently"})
             continue
 
-        # This project is due - run it
-        logger.info(f"Project {pid} is due (cron: {cron_expr}), starting pipeline")
+        platform_list = None if all_platforms else list(platforms_due)
+
+        logger.info(f"Project {pid} is due (matched: {matched_crons}), "
+                    f"platforms: {platform_list or 'all'}")
+
         try:
             from app.pipeline.orchestrator import run_pipeline
-            result = run_pipeline(pid, trigger_type="cron", db=db)
-            results.append({"project_id": pid, "status": result["status"]})
-            logger.info(f"Pipeline for {pid} completed: {result['status']}")
+            result = run_pipeline(pid, trigger_type="cron", db=db, platforms=platform_list)
+            results.append({
+                "project_id": pid,
+                "status": result["status"],
+                "platforms": platform_list or "all",
+            })
+            logger.info(f"Pipeline for {pid} completed: {result['status']} "
+                       f"(platforms: {platform_list or 'all'})")
         except Exception as e:
             results.append({"project_id": pid, "status": "error", "error": str(e)})
             logger.error(f"Pipeline for {pid} failed: {e}")
