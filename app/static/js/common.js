@@ -45,6 +45,25 @@ function formatTime(isoStr) {
     }
 }
 
+function formatFutureTime(isoStr) {
+    if (!isoStr) return '-';
+    try {
+        var s = isoStr;
+        if (!s.endsWith('Z') && s.indexOf('+') === -1 && s.lastIndexOf('-') < 10) s += 'Z';
+        var d = new Date(s);
+        var dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        var monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        var h = d.getUTCHours();
+        var m = d.getUTCMinutes();
+        var ampm = h >= 12 ? 'PM' : 'AM';
+        var h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+        return dayNames[d.getUTCDay()] + ', ' + monthNames[d.getUTCMonth()] + ' ' +
+               d.getUTCDate() + ' at ' + h12 + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm + ' UTC';
+    } catch(e) {
+        return isoStr;
+    }
+}
+
 function showToast(message, type) {
     type = type || 'info';
     var icons = {
@@ -77,17 +96,27 @@ function showToast(message, type) {
     toastEl.addEventListener('hidden.bs.toast', function() { toastEl.remove(); });
 }
 
-/* Compute next cron run as a readable string like "Mon, Feb 24 at 3:00 PM UTC" */
-function nextCronRun(cron) {
-    if (!cron) return 'Not scheduled';
-    var parts = cron.trim().split(/\s+/);
-    if (parts.length < 5) return cron;
+/* Format a UTC Date as "Mon, Feb 24 at 3:00 PM UTC" */
+function _formatCronDate(candidate) {
+    var dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var h = candidate.getUTCHours();
+    var m = candidate.getUTCMinutes();
+    var ampm = h >= 12 ? 'PM' : 'AM';
+    var h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+    return dayNames[candidate.getUTCDay()] + ', ' + monthNames[candidate.getUTCMonth()] + ' ' +
+           candidate.getUTCDate() + ' at ' + h12 + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm + ' UTC';
+}
+
+/* Compute next run from a single cron string */
+function _nextFromCron(cronStr) {
+    var parts = cronStr.trim().split(/\s+/);
+    if (parts.length < 5) return null;
 
     var minute = parseInt(parts[0]);
     var hour = parseInt(parts[1]);
     var dow = parts[4];
 
-    // Determine allowed days of week (0=Sun, 6=Sat)
     var allowedDays = null;
     if (dow !== '*') {
         allowedDays = [];
@@ -101,7 +130,6 @@ function nextCronRun(cron) {
         });
     }
 
-    // Find next matching UTC time
     var now = new Date();
     var candidate = new Date(Date.UTC(
         now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hour, minute, 0
@@ -113,16 +141,35 @@ function nextCronRun(cron) {
             candidate.setUTCDate(candidate.getUTCDate() + 1);
         }
     }
+    return candidate;
+}
 
-    // Format: "Mon, Feb 24 at 3:00 PM UTC"
-    var dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    var monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    var h = candidate.getUTCHours();
-    var m = candidate.getUTCMinutes();
-    var ampm = h >= 12 ? 'PM' : 'AM';
-    var h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
-    return dayNames[candidate.getUTCDay()] + ', ' + monthNames[candidate.getUTCMonth()] + ' ' +
-           candidate.getUTCDate() + ' at ' + h12 + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm + ' UTC';
+/* Compute next cron run — handles both simple string and per-platform array */
+function nextCronRun(cron) {
+    if (!cron) return 'Not scheduled';
+
+    // Handle JSON array format: [{"cron": "...", "platforms": [...]}, ...]
+    var entries = [];
+    if (Array.isArray(cron)) {
+        entries = cron;
+    } else if (typeof cron === 'string' && cron.trim().charAt(0) === '[') {
+        try { entries = JSON.parse(cron); } catch(e) { entries = []; }
+    }
+
+    if (entries.length > 0) {
+        var earliest = null;
+        for (var i = 0; i < entries.length; i++) {
+            var c = entries[i].cron || entries[i];
+            var candidate = _nextFromCron(c);
+            if (candidate && (!earliest || candidate < earliest)) earliest = candidate;
+        }
+        return earliest ? _formatCronDate(earliest) : 'Not scheduled';
+    }
+
+    // Simple cron string
+    if (typeof cron !== 'string') return 'Not scheduled';
+    var candidate = _nextFromCron(cron);
+    return candidate ? _formatCronDate(candidate) : cron;
 }
 
 /* Cron helper: human-readable description */

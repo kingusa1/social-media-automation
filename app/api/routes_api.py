@@ -13,9 +13,72 @@ from app.schemas import (
     ProjectUpdate, ProfileUpdate, ManualTriggerRequest,
 )
 from app.scheduler.scheduler import (
-    get_all_jobs, get_next_run_time, add_project_schedule,
+    get_all_jobs, add_project_schedule,
     pause_project_schedule, resume_project_schedule,
 )
+
+
+def _next_cron_time(cron_expr: str, now: datetime) -> datetime | None:
+    """Compute the next UTC datetime a cron expression will fire."""
+    try:
+        parts = cron_expr.strip().split()
+        if len(parts) < 5:
+            return None
+        minute = int(parts[0])
+        hour = int(parts[1])
+        dow_spec = parts[4]
+
+        allowed_days = None
+        if dow_spec != "*":
+            allowed_days = set()
+            for chunk in dow_spec.split(","):
+                if "-" in chunk:
+                    lo, hi = chunk.split("-", 1)
+                    allowed_days.update(range(int(lo), int(hi) + 1))
+                else:
+                    allowed_days.add(int(chunk))
+
+        candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0, tzinfo=timezone.utc)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+
+        if allowed_days is not None:
+            for _ in range(8):
+                cron_dow = (candidate.weekday() + 1) % 7  # Python Mon=0 -> cron Mon=1
+                if cron_dow in allowed_days:
+                    break
+                candidate += timedelta(days=1)
+
+        return candidate
+    except Exception:
+        return None
+
+
+def _compute_next_run(schedule_cron) -> datetime | None:
+    """Compute the earliest next run from a schedule_cron (string or array)."""
+    now = datetime.now(timezone.utc)
+
+    if isinstance(schedule_cron, list):
+        entries = schedule_cron
+    elif isinstance(schedule_cron, str):
+        if schedule_cron.strip().startswith("["):
+            try:
+                entries = json.loads(schedule_cron)
+            except (json.JSONDecodeError, ValueError):
+                entries = [{"cron": schedule_cron}]
+        else:
+            entries = [{"cron": schedule_cron}]
+    else:
+        return None
+
+    earliest = None
+    for entry in entries:
+        cron_expr = entry.get("cron", "") if isinstance(entry, dict) else str(entry)
+        nxt = _next_cron_time(cron_expr, now)
+        if nxt and (earliest is None or nxt < earliest):
+            earliest = nxt
+
+    return earliest
 
 router = APIRouter()
 
@@ -43,10 +106,7 @@ def get_overview(db: SheetsDB = Depends(get_sheets_db)):
         p_runs = [r for r in all_runs if r["project_id"] == pid]
         last_run = p_runs[0] if p_runs else None
 
-        try:
-            next_run = get_next_run_time(pid)
-        except Exception:
-            next_run = None
+        next_run = _compute_next_run(p["schedule_cron"])
 
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
         p_posts = [pp for pp in all_posts if pp["project_id"] == pid]

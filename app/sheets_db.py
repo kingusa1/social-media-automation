@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Module-level cache & connection
 # ---------------------------------------------------------------------------
 _cache: dict = {}
-_CACHE_TTL = 30  # seconds
+_CACHE_TTL = 120  # seconds
 
 _gc = None
 _spreadsheet = None

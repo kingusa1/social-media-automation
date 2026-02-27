@@ -99,7 +99,7 @@ async function loadDashboard() {
                         '</div>' +
                         '<div class="info-row">' +
                             '<span class="label"><i class="bi bi-calendar-event me-1"></i>Next Run</span>' +
-                            '<span style="font-size:0.85rem">' + nextCronRun(p.schedule_cron) + '</span>' +
+                            '<span style="font-size:0.85rem">' + (p.next_run ? formatFutureTime(p.next_run) : nextCronRun(p.schedule_cron)) + '</span>' +
                         '</div>' +
 
                         (!hasAccounts ?
@@ -157,6 +157,6 @@ async function triggerPipeline(projectId, btn) {
 }
 
 loadDashboard();
-setInterval(loadDashboard, 30000);
+setInterval(loadDashboard, 60000);
 </script>
 {% endblock %}
