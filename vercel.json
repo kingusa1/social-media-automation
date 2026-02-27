@@ -21,12 +21,8 @@
   ],
   "crons": [
     {
-      "path": "/api/cron/run/infiniteo",
-      "schedule": "0 14 * * *"
-    },
-    {
-      "path": "/api/cron/run/yourops?platforms=linkedin",
-      "schedule": "0 15 * * 1-5"
+      "path": "/api/cron/check",
+      "schedule": "0 * * * *"
     }
   ]
 }
