@@ -101,6 +101,22 @@ def get_overview(db: SheetsDB = Depends(get_sheets_db)):
     }
 
 
+# ========== Health / Diagnostics ==========
+
+@router.get("/health")
+def health_check():
+    """Diagnostic endpoint to verify AI config is loaded."""
+    settings = get_settings()
+    return {
+        "api_base": settings.POLLINATIONS_API_BASE,
+        "primary_model": settings.POLLINATIONS_PRIMARY_MODEL,
+        "fallback_models": settings.fallback_models,
+        "api_key_set": bool(settings.POLLINATIONS_API_KEY),
+        "api_key_prefix": settings.POLLINATIONS_API_KEY[:8] + "..." if settings.POLLINATIONS_API_KEY else "NOT SET",
+        "is_vercel": settings.is_vercel,
+    }
+
+
 # ========== Pipeline Runs ==========
 
 @router.get("/runs")
