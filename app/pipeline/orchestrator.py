@@ -383,6 +383,14 @@ def run_pipeline(project_id: str, trigger_type: str, db: SheetsDB,
         log_step("finalize", "success",
                  f"Pipeline complete: {final_status} (published: {publish_success}, failed: {publish_fail})")
 
+        # --- Cleanup: Remove unselected articles to keep sheet organized ---
+        try:
+            deleted = db.delete_unselected_articles(project_id)
+            if deleted > 0:
+                log_step("cleanup", "success", f"Removed {deleted} unselected articles")
+        except Exception as e:
+            log_step("cleanup", "warning", f"Article cleanup skipped: {e}")
+
         return db.get_pipeline_run(run_id)
 
     except Exception as e:

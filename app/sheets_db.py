@@ -533,6 +533,43 @@ class SheetsDB:
             ws.update_cells(cells)
             _invalidate("Articles")
 
+    def delete_unselected_articles(self, project_id: str) -> int:
+        """Delete all unselected articles for a project to keep the sheet clean.
+
+        Uses a bulk approach: keeps header + rows to keep, rewrites the sheet.
+        Returns the number of rows deleted.
+        """
+        sp = _get_spreadsheet()
+        ws = sp.worksheet("Articles")
+        all_values = ws.get_all_values()
+
+        if len(all_values) <= 1:
+            return 0
+
+        header = all_values[0]
+        pid_col = header.index("project_id") if "project_id" in header else None
+        sel_col = header.index("was_selected") if "was_selected" in header else None
+        if pid_col is None or sel_col is None:
+            return 0
+
+        keep_rows = [header]
+        deleted = 0
+        for row in all_values[1:]:
+            is_this_project = (row[pid_col] == project_id)
+            is_selected = _parse_bool(row[sel_col]) if sel_col < len(row) else False
+            if is_this_project and not is_selected:
+                deleted += 1
+            else:
+                keep_rows.append(row)
+
+        if deleted == 0:
+            return 0
+
+        ws.clear()
+        ws.update(keep_rows, value_input_option="RAW")
+        _invalidate("Articles")
+        return deleted
+
     def get_fallback_article(self, project_id: str) -> dict | None:
         articles = self.get_articles(project_id=project_id, was_selected=False)
         return articles[0] if articles else None
