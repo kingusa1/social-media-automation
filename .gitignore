@@ -43,6 +43,10 @@ service_account.json
 *-credentials.json
 *-fee219f692b9.json
 
+# Temp files with tokens
+_tmp_*
+.env.vercel
+
 # Misc
 nul
 

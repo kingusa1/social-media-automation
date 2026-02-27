@@ -1,6 +1,6 @@
 """Pydantic schemas for API request/response validation."""
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 from pydantic import BaseModel
 
 
@@ -12,7 +12,7 @@ class ProjectResponse(BaseModel):
     hashtags: list[str]
     rss_feeds: list[str]
     scoring_weights: dict
-    schedule_cron: str
+    schedule_cron: Union[str, list]
     twitter_enabled: bool
     is_active: bool
 
@@ -27,7 +27,7 @@ class ProjectUpdate(BaseModel):
     hashtags: Optional[list[str]] = None
     rss_feeds: Optional[list[str]] = None
     scoring_weights: Optional[dict] = None
-    schedule_cron: Optional[str] = None
+    schedule_cron: Optional[Union[str, list]] = None
     twitter_enabled: Optional[bool] = None
     is_active: Optional[bool] = None
 
